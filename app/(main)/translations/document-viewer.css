@@ -1,0 +1,127 @@
+/* Estilos para visualização de documentos Word */
+.document-viewer {
+  font-family: 'Times New Roman', Times, serif;
+  font-size: 12pt;
+  line-height: 1.5;
+  color: #000000;
+  background-color: #ffffff;
+  padding: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  min-height: 400px;
+}
+
+.document-viewer h1 {
+  font-size: 24pt;
+  font-weight: bold;
+  margin: 1em 0 0.5em 0;
+  color: #000000;
+}
+
+.document-viewer h2 {
+  font-size: 18pt;
+  font-weight: bold;
+  margin: 0.83em 0;
+  color: #000000;
+}
+
+.document-viewer h3 {
+  font-size: 14pt;
+  font-weight: bold;
+  margin: 1em 0;
+  color: #000000;
+}
+
+.document-viewer h4,
+.document-viewer h5,
+.document-viewer h6 {
+  font-weight: bold;
+  margin: 1em 0;
+  color: #000000;
+}
+
+.document-viewer p {
+  margin: 1em 0;
+  text-align: justify;
+  color: #000000;
+}
+
+.document-viewer strong,
+.document-viewer b {
+  font-weight: bold;
+}
+
+.document-viewer em,
+.document-viewer i {
+  font-style: italic;
+}
+
+.document-viewer u {
+  text-decoration: underline;
+}
+
+.document-viewer ul,
+.document-viewer ol {
+  margin: 1em 0;
+  padding-left: 2.5em;
+  color: #000000;
+}
+
+.document-viewer li {
+  margin: 0.5em 0;
+  color: #000000;
+}
+
+.document-viewer table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+}
+
+.document-viewer table td,
+.document-viewer table th {
+  border: 1px solid #000000;
+  padding: 8px 12px;
+  text-align: left;
+  color: #000000;
+}
+
+.document-viewer table th {
+  background-color: #f3f4f6;
+  font-weight: bold;
+}
+
+.document-viewer a {
+  color: #0000ff;
+  text-decoration: underline;
+}
+
+.document-viewer blockquote {
+  margin: 1em 2em;
+  padding-left: 1em;
+  border-left: 3px solid #cccccc;
+  color: #000000;
+}
+
+.document-viewer code,
+.document-viewer pre {
+  font-family: 'Courier New', monospace;
+  background-color: #f5f5f5;
+  padding: 2px 4px;
+  border-radius: 3px;
+  color: #000000;
+}
+
+.document-viewer hr {
+  border: none;
+  border-top: 1px solid #cccccc;
+  margin: 2em 0;
+}
+
+/* Simulate page breaks visually */
+.document-viewer br[style*="page-break"] {
+  display: block;
+  height: 2em;
+  border-bottom: 1px dashed #cccccc;
+  margin: 2em 0;
+}
