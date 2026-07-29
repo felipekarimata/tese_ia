@@ -109,7 +109,7 @@ const COMMANDS: SlashCommand[] = [
   { name: '/traduzir',  args: '<idioma>',     example: '/traduzir inglês',                       description: 'Traduz a versão atual para outro idioma',                  icon: <Languages      className="h-4 w-4" />, color: 'text-purple-400' },
   { name: '/adaptar',   args: '<estilo>',     example: '/adaptar simplificado',                  description: 'Adapta o tom (acadêmico, profissional, simplificado)',     icon: <Wand2          className="h-4 w-4" />, color: 'text-pink-400' },
   { name: '/ajustar',   args: '<instruções>', example: '/ajustar expandir a conclusão',          description: 'Aplica uma edição: IA cria uma nova versão',               icon: <Sliders        className="h-4 w-4" />, color: 'text-orange-400' },
-  { name: '/revisar',   args: '',             example: '/revisar',                               description: 'Verifica se leis citadas continuam vigentes',              icon: <SearchCheck    className="h-4 w-4" />, color: 'text-yellow-400' },
+  { name: '/revisar',   args: '',             example: '/revisar',                               description: 'Pesquisa mudanças factuais e evidências recentes',          icon: <SearchCheck    className="h-4 w-4" />, color: 'text-yellow-400' },
   { name: '/comparar',  args: '[v1] [v2]',    example: '/comparar 1 atual',                      description: 'Compara duas versões (padrão: original vs atual)',         icon: <ArrowLeftRight className="h-4 w-4" />, color: 'text-blue-400' },
   { name: '/todos',     args: '',             example: '/todos',                                 description: 'Executa em sequência: traduzir pt → adaptar simplificado → revisar leis', icon: <PlayCircle className="h-4 w-4" />, color: 'text-green-400' },
   { name: '/3',         args: '<ias> <cmd>',  example: '/3 gemini openai claude /ajustar expandir conclusão', description: MULTI3_SHORT_DESCRIPTION, icon: <Cpu className="h-4 w-4" />, color: 'text-indigo-400' },
@@ -516,11 +516,11 @@ export default function AgentModePage() {
             jobId,
             jobResultHref: reviewHref,
             content: total > 0
-              ? `Revisão de normas concluída. Foram encontradas ${total} referência(s); abra a revisão para conferir e aplicar.`
-              : 'Revisão de normas concluída. Nenhuma referência normativa foi encontrada.',
+              ? `Revisão de atualidade concluída. Foram encontrados ${total} achado(s); abra a revisão para conferir e aplicar.`
+              : 'Revisão de atualidade concluída. Nenhuma mudança factual suficientemente sustentada foi encontrada.',
           });
-          toast.success('Revisão de normas concluída!', {
-            description: total > 0 ? 'Abra a revisão para conferir os resultados.' : 'Nenhuma norma foi encontrada no documento.',
+          toast.success('Revisão de atualidade concluída!', {
+            description: total > 0 ? 'Abra a revisão para conferir os resultados.' : 'Nenhuma mudança sustentada foi encontrada.',
             duration: 6000,
           });
           return;
@@ -539,7 +539,7 @@ export default function AgentModePage() {
           status: 'running',
           jobId,
           jobResultHref: reviewHref,
-          content: `Revisando normas... ${Math.min(100, Math.max(0, Math.round(pct)))}%`,
+          content: `Pesquisando atualizações... ${Math.min(100, Math.max(0, Math.round(pct)))}%`,
         });
       } catch {}
     }
@@ -548,7 +548,7 @@ export default function AgentModePage() {
       status: 'running',
       jobId,
       jobResultHref: reviewHref,
-      content: 'Revisão de normas ainda está rodando no servidor. Abra a revisão para acompanhar.',
+      content: 'Revisão de atualidade ainda está rodando no servidor. Abra a revisão para acompanhar.',
     });
   };
 
@@ -1171,11 +1171,16 @@ export default function AgentModePage() {
         case '/revisar': {
           const ai = currentAI;
           if (!ai) { appendMessage({ role: 'system', content: 'Selecione um provedor de IA.', status: 'error' }); return; }
-          const asstId = appendMessage({ role: 'assistant', content: 'Verificando vigência das leis e normas citadas...', status: 'running', command: cmd, aiProvider: ai.provider, aiModel: ai.model });
+          const asstId = appendMessage({ role: 'assistant', content: 'Pesquisando mudanças factuais e evidências recentes na web...', status: 'running', command: cmd, aiProvider: ai.provider, aiModel: ai.model });
           const res = await fetch(`/api/chapters/${chapterId}/versions/${selectedVersionId}/norms-update`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ provider: ai.provider, model: ai.model }),
+            body: JSON.stringify({
+              provider: ai.provider,
+              model: ai.model,
+              reviewScope: 'currentness',
+              researchDepth: 'deep'
+            }),
           });
           if (!res.ok) { const err = await res.json().catch(() => ({})); updateMessage(asstId, { status: 'error', content: `Erro: ${err.error || 'Falha ao iniciar revisão'}` }); return; }
           const { jobId } = await res.json();
@@ -1183,7 +1188,7 @@ export default function AgentModePage() {
             status: 'running',
             jobId,
             jobResultHref: getOperationReviewHref('/revisar', jobId),
-            content: 'Revisão de normas iniciada. Vou atualizar aqui quando terminar.',
+            content: 'Revisão aprofundada de atualidade iniciada. Vou atualizar aqui quando terminar.',
           });
           await pollNormsJob(jobId, asstId);
           return;

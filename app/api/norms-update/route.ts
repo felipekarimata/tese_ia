@@ -9,6 +9,11 @@ import { detectNormsInDocument } from '@/lib/norms-update/norm-detector';
 import { verifyMultipleNorms } from '@/lib/norms-update/norm-verifier';
 import { NormReference } from '@/lib/norms-update/types';
 import { appendNormJobLog } from '@/lib/norms-update/job-log';
+import { getProviderApiKey } from '@/lib/ai/api-keys';
+import { DEFAULT_MODELS } from '@/lib/ai/model-registry';
+import type { AIProvider } from '@/lib/ai/types';
+import { reviewDocumentCurrentness, type ReviewScope } from '@/lib/currentness-review';
+import type { ResearchDepth } from '@/lib/ai/research';
 
 // POST /api/norms-update - Inicia análise de normas
 export async function POST(req: NextRequest) {
@@ -16,9 +21,31 @@ export async function POST(req: NextRequest) {
     const {
       documentId,
       provider = 'gemini',
-      model = 'gemini-3.5-flash',
-      sourceDocumentPath // Optional: for pipeline usage
+      model,
+      reviewScope = 'norms',
+      researchDepth = 'deep',
+      sourceDocumentPath
+    }: {
+      documentId?: string;
+      provider?: AIProvider;
+      model?: string;
+      reviewScope?: ReviewScope;
+      researchDepth?: ResearchDepth;
+      sourceDocumentPath?: string;
     } = await req.json();
+
+    const resolvedModel = model || DEFAULT_MODELS[provider];
+
+    if (reviewScope !== 'norms' && reviewScope !== 'currentness') {
+      return NextResponse.json({ error: 'Invalid reviewScope' }, { status: 400 });
+    }
+
+    if (reviewScope === 'norms' && provider === 'grok') {
+      return NextResponse.json(
+        { error: 'Grok is not supported by the norm detector' },
+        { status: 400 }
+      );
+    }
 
     if (!documentId && !sourceDocumentPath) {
       return NextResponse.json(
@@ -58,6 +85,14 @@ export async function POST(req: NextRequest) {
         manual_review: 0,
         current_reference: 0,
         progress_percentage: 0,
+        activity_log: [{
+          at: new Date().toISOString(),
+          level: 'info',
+          message: reviewScope === 'currentness'
+            ? 'Revisão de atualidade solicitada pelo comando /revisar.'
+            : 'Revisão de normas iniciada.',
+          scope: reviewScope
+        }],
         created_at: new Date().toISOString()
       });
 
@@ -70,11 +105,19 @@ export async function POST(req: NextRequest) {
     }
 
     // Inicia processamento em background
-    processNormsUpdate(jobId, doc, provider, model, sourceDocumentPath).catch(err => {
+    processNormsUpdate(
+      jobId,
+      doc,
+      provider,
+      resolvedModel,
+      reviewScope,
+      researchDepth,
+      sourceDocumentPath
+    ).catch(err => {
       console.error('[NORMS] Background processing error:', err);
     });
 
-    return NextResponse.json({ jobId });
+    return NextResponse.json({ jobId, reviewScope });
 
   } catch (error: any) {
     console.error('[NORMS] Error:', error);
@@ -91,8 +134,10 @@ export async function POST(req: NextRequest) {
 async function processNormsUpdate(
   jobId: string,
   doc: any,
-  provider: 'openai' | 'gemini' | 'anthropic',
+  provider: AIProvider,
   model: string,
+  reviewScope: ReviewScope,
+  researchDepth: ResearchDepth,
   sourceDocumentPath?: string
 ) {
   try {
@@ -105,7 +150,12 @@ async function processNormsUpdate(
       })
       .eq('id', jobId);
 
-    await appendNormJobLog(jobId, 'Início da análise de normas');
+    await appendNormJobLog(
+      jobId,
+      reviewScope === 'currentness'
+        ? 'Início da revisão aprofundada de atualidade.'
+        : 'Início da análise de normas'
+    );
     console.log(`[NORMS] Starting analysis for job ${jobId}`);
 
     let tempFilePath: string;
@@ -135,6 +185,57 @@ async function processNormsUpdate(
     console.log('[NORMS] Extracting document structure...');
     await appendNormJobLog(jobId, 'Extraindo estrutura do documento…');
     const { structure, paragraphs } = await extractDocumentStructure(tempFilePath);
+    const apiKey = getProviderApiKey(provider);
+
+    if (reviewScope === 'currentness') {
+      const findings = await reviewDocumentCurrentness({
+        paragraphs,
+        sections: structure.sections,
+        provider,
+        model,
+        apiKey,
+        depth: researchDepth,
+        onLog: message => appendNormJobLog(jobId, message),
+        onProgress: async (current, total) => {
+          const percentage = 10 + Math.floor((current / Math.max(1, total)) * 85);
+          await supabase
+            .from('norm_update_jobs')
+            .update({
+              current_reference: current,
+              total_references: total,
+              progress_percentage: percentage
+            })
+            .eq('id', jobId);
+        }
+      });
+
+      const stats = calculateStats(findings);
+      await supabase
+        .from('norm_update_jobs')
+        .update({
+          status: 'completed',
+          norm_references: findings,
+          total_references: findings.length,
+          current_reference: findings.length,
+          vigentes: stats.vigentes,
+          alteradas: stats.alteradas,
+          revogadas: stats.revogadas,
+          substituidas: stats.substituidas,
+          manual_review: stats.manual_review,
+          progress_percentage: 100,
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', jobId);
+
+      await fs.unlink(tempFilePath).catch(() => {});
+      await appendNormJobLog(
+        jobId,
+        findings.length > 0
+          ? `Revisão concluída com ${findings.length} achado(s) sustentado(s) por fontes.`
+          : 'Revisão concluída sem atualizações factuais suficientemente sustentadas.'
+      );
+      return;
+    }
 
     // Prepara parágrafos com contexto
     const paragraphsWithContext = paragraphs
@@ -151,16 +252,9 @@ async function processNormsUpdate(
       jobId,
       `Detectando normas em ${paragraphsWithContext.length} parágrafo(s)…`
     );
-    const apiKey =
-      provider === 'openai'
-        ? process.env.OPENAI_API_KEY!
-        : provider === 'anthropic'
-          ? process.env.ANTHROPIC_API_KEY!
-          : (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!;
-
     let references = await detectNormsInDocument(
       paragraphsWithContext,
-      provider,
+      provider as 'openai' | 'gemini' | 'anthropic',
       model,
       apiKey
     );

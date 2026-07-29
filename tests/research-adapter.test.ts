@@ -7,6 +7,7 @@ import {
   parseGeminiGrounding,
   parseResponsesApi
 } from '../lib/ai/research/index';
+import { buildReviewSegments } from '../lib/currentness-review';
 
 test('normaliza, deduplica e rejeita URLs não HTTP', () => {
   assert.equal(normalizeHttpUrl('javascript:alert(1)'), undefined);
@@ -87,4 +88,23 @@ test('extrai pesquisas e citações do Anthropic', () => {
   assert.equal(parsed.sources.length, 1);
   assert.equal(parsed.sources[0].sourceType, 'academic');
   assert.equal(parsed.searchCalls, 1);
+});
+
+test('divide o documento para /revisar preservando índices e secções', () => {
+  const paragraphs = [
+    { text: 'Capítulo 1', isHeader: true, headerLevel: 1, index: 0 },
+    { text: 'A'.repeat(180), isHeader: false, index: 1 },
+    { text: 'B'.repeat(180), isHeader: false, index: 2 },
+    { text: 'Capítulo 2', isHeader: true, headerLevel: 1, index: 3 },
+    { text: 'C'.repeat(180), isHeader: false, index: 4 }
+  ];
+  const segments = buildReviewSegments(paragraphs, [
+    { title: 'Capítulo 1', startParagraphIndex: 0, endParagraphIndex: 2 },
+    { title: 'Capítulo 2', startParagraphIndex: 3, endParagraphIndex: 4 }
+  ], 400);
+
+  assert.equal(segments.length, 2);
+  assert.deepEqual(segments[0].paragraphs.map(paragraph => paragraph.index), [1, 2]);
+  assert.deepEqual(segments[1].paragraphs.map(paragraph => paragraph.index), [4]);
+  assert.ok(!segments.some(segment => segment.text.includes('Capítulo 1')));
 });

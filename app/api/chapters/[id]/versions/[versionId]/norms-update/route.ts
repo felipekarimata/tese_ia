@@ -9,6 +9,11 @@ import { detectNormsInDocument } from '@/lib/norms-update/norm-detector';
 import { verifyMultipleNorms } from '@/lib/norms-update/norm-verifier';
 import { NormReference } from '@/lib/norms-update/types';
 import { appendNormJobLog } from '@/lib/norms-update/job-log';
+import { getProviderApiKey } from '@/lib/ai/api-keys';
+import { DEFAULT_MODELS } from '@/lib/ai/model-registry';
+import type { AIProvider } from '@/lib/ai/types';
+import { reviewDocumentCurrentness, type ReviewScope } from '@/lib/currentness-review';
+import type { ResearchDepth } from '@/lib/ai/research';
 
 /**
  * POST /api/chapters/[chapterId]/versions/[versionId]/norms-update
@@ -21,8 +26,17 @@ export async function POST(
   try {
     const { id: chapterId, versionId } = await params;
     const body = await req.json().catch(() => ({}));
-    const provider = body.provider ?? 'gemini';
-    const model = body.model ?? 'gemini-2.5-flash';
+    const provider: AIProvider = body.provider ?? 'gemini';
+    const model = body.model ?? DEFAULT_MODELS[provider];
+    const reviewScope: ReviewScope = body.reviewScope === 'currentness' ? 'currentness' : 'norms';
+    const researchDepth: ResearchDepth = body.researchDepth === 'quick' ? 'quick' : 'deep';
+
+    if (reviewScope === 'norms' && provider === 'grok') {
+      return NextResponse.json(
+        { error: 'Grok is not supported by the norm detector' },
+        { status: 400 }
+      );
+    }
 
     const { data: version, error: versionError } = await supabase
       .from('chapter_versions')
@@ -70,6 +84,14 @@ export async function POST(
         manual_review: 0,
         current_reference: 0,
         progress_percentage: 0,
+        activity_log: [{
+          at: new Date().toISOString(),
+          level: 'info',
+          message: reviewScope === 'currentness'
+            ? 'Revisão de atualidade solicitada pelo comando /revisar.'
+            : 'Revisão de normas iniciada.',
+          scope: reviewScope
+        }],
         created_at: new Date().toISOString()
       });
 
@@ -91,11 +113,18 @@ export async function POST(
       return NextResponse.json(body, { status: 500 });
     }
 
-    processNormsUpdate(jobId, tempFilePath, provider, model).catch(err => {
+    processNormsUpdate(
+      jobId,
+      tempFilePath,
+      provider,
+      model,
+      reviewScope,
+      researchDepth
+    ).catch(err => {
       console.error('[NORMS] Chapter norms background error:', err);
     });
 
-    return NextResponse.json({ jobId });
+    return NextResponse.json({ jobId, reviewScope });
   } catch (error: any) {
     console.error('[NORMS] Chapter norms-update error:', error);
     return NextResponse.json(
@@ -118,15 +147,12 @@ async function getCurrentChapter(paragraphs: any[], paragraphIndex: number, stru
 async function processNormsUpdate(
   jobId: string,
   tempFilePath: string,
-  provider: 'openai' | 'gemini' | 'anthropic',
-  model: string
+  provider: AIProvider,
+  model: string,
+  reviewScope: ReviewScope,
+  researchDepth: ResearchDepth
 ) {
-  const apiKey =
-    provider === 'openai'
-      ? process.env.OPENAI_API_KEY!
-      : provider === 'anthropic'
-        ? process.env.ANTHROPIC_API_KEY!
-        : (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!;
+  const apiKey = getProviderApiKey(provider);
 
   try {
     await supabase
@@ -134,9 +160,62 @@ async function processNormsUpdate(
       .update({ status: 'analyzing', started_at: new Date().toISOString() })
       .eq('id', jobId);
 
-    await appendNormJobLog(jobId, 'Início da análise de normas (capítulo)');
+    await appendNormJobLog(
+      jobId,
+      reviewScope === 'currentness'
+        ? 'Início da revisão aprofundada de atualidade (capítulo).'
+        : 'Início da análise de normas (capítulo)'
+    );
     await appendNormJobLog(jobId, 'Extraindo estrutura do documento…');
     const { structure, paragraphs } = await extractDocumentStructure(tempFilePath);
+
+    if (reviewScope === 'currentness') {
+      const findings = await reviewDocumentCurrentness({
+        paragraphs,
+        sections: structure.sections,
+        provider,
+        model,
+        apiKey,
+        depth: researchDepth,
+        onLog: message => appendNormJobLog(jobId, message),
+        onProgress: async (current, total) => {
+          const percentage = 10 + Math.floor((current / Math.max(1, total)) * 85);
+          await supabase
+            .from('norm_update_jobs')
+            .update({
+              current_reference: current,
+              total_references: total,
+              progress_percentage: percentage
+            })
+            .eq('id', jobId);
+        }
+      });
+      const stats = calculateStats(findings);
+      await supabase
+        .from('norm_update_jobs')
+        .update({
+          status: 'completed',
+          norm_references: findings,
+          total_references: findings.length,
+          current_reference: findings.length,
+          vigentes: stats.vigentes,
+          alteradas: stats.alteradas,
+          revogadas: stats.revogadas,
+          substituidas: stats.substituidas,
+          manual_review: stats.manual_review,
+          progress_percentage: 100,
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', jobId);
+      await appendNormJobLog(
+        jobId,
+        findings.length > 0
+          ? `Revisão concluída com ${findings.length} achado(s) sustentado(s) por fontes.`
+          : 'Revisão concluída sem atualizações factuais suficientemente sustentadas.'
+      );
+      await fs.unlink(tempFilePath).catch(() => {});
+      return;
+    }
     const paragraphsWithContext = paragraphs
       .filter((p: any) => !p.isHeader)
       .map((p: any, idx: number) => ({
@@ -151,7 +230,7 @@ async function processNormsUpdate(
     );
     const references = await detectNormsInDocument(
       paragraphsWithContext,
-      provider,
+      provider as 'openai' | 'gemini' | 'anthropic',
       model,
       apiKey
     );
@@ -211,13 +290,7 @@ async function processNormsUpdate(
       }
     );
 
-    const stats = {
-      vigentes: verifiedReferences.filter((r: NormReference) => r.status === 'vigente').length,
-      alteradas: verifiedReferences.filter((r: NormReference) => r.status === 'alterada').length,
-      revogadas: verifiedReferences.filter((r: NormReference) => r.status === 'revogada').length,
-      substituidas: verifiedReferences.filter((r: NormReference) => r.status === 'substituida').length,
-      manual_review: verifiedReferences.filter((r: NormReference) => r.updateType === 'manual').length
-    };
+    const stats = calculateStats(verifiedReferences);
 
     await supabase
       .from('norm_update_jobs')
@@ -255,5 +328,15 @@ async function processNormsUpdate(
       })
       .eq('id', jobId);
   }
+}
+
+function calculateStats(references: NormReference[]) {
+  return {
+    vigentes: references.filter(reference => reference.status === 'vigente').length,
+    alteradas: references.filter(reference => reference.status === 'alterada').length,
+    revogadas: references.filter(reference => reference.status === 'revogada').length,
+    substituidas: references.filter(reference => reference.status === 'substituida').length,
+    manual_review: references.filter(reference => reference.updateType === 'manual').length
+  };
 }
 

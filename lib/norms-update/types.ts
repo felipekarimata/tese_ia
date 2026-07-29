@@ -45,6 +45,9 @@ export type NormReference = {
   // Para atualização automática
   suggestedText?: string;        // Texto sugerido para substituição
   confidence?: number;           // Confiança na sugestão (0-1)
+  reviewScope?: 'norms' | 'currentness';
+  category?: 'statistic' | 'academic' | 'legal' | 'guideline' | 'technology' | 'factual' | 'other';
+  verdict?: 'outdated' | 'contradicted' | 'new_evidence' | 'uncertain';
 };
 
 export type NormUpdateJob = {

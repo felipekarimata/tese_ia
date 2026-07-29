@@ -49,10 +49,15 @@ export async function GET(
 
     // Formata resposta
     const activityLog = Array.isArray(job.activity_log) ? job.activity_log : [];
+    const references = Array.isArray(job.norm_references) ? job.norm_references : [];
+    const reviewScope = activityLog.find((entry: any) => entry?.scope)?.scope
+      || references.find((reference: any) => reference?.reviewScope)?.reviewScope
+      || 'norms';
 
     return jsonNoStore({
       jobId: job.id,
       documentId: job.document_id,
+      reviewScope,
       source,
       ...(source === 'chapter' && chapterId && versionId ? { chapterId, versionId } : {}),
       status: job.status,
@@ -62,7 +67,7 @@ export async function GET(
         percentage: job.progress_percentage
       },
       activityLog,
-      references: job.norm_references || [],
+      references,
       stats: {
         total: job.total_references,
         vigentes: job.vigentes,

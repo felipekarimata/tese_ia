@@ -95,7 +95,7 @@ const COMMANDS: SlashCommand[] = [
   { name: '/traduzir',  args: '<idioma>',     example: '/traduzir inglês',                description: 'Traduz o documento para outro idioma',          icon: <Languages   className="h-4 w-4" />, color: 'text-purple-400' },
   { name: '/adaptar',   args: '<estilo>',     example: '/adaptar simplificado',           description: 'Adapta o tom (academic, professional, simplified)', icon: <Wand2       className="h-4 w-4" />, color: 'text-pink-400' },
   { name: '/ajustar',   args: '<instruções>', example: '/ajustar expandir a conclusão',   description: 'Aplica uma edição: IA cria uma nova versão',     icon: <Sliders     className="h-4 w-4" />, color: 'text-orange-400' },
-  { name: '/revisar',   args: '',             example: '/revisar',                        description: 'Verifica se leis citadas continuam vigentes',     icon: <SearchCheck className="h-4 w-4" />, color: 'text-yellow-400' },
+  { name: '/revisar',   args: '',             example: '/revisar',                        description: 'Pesquisa mudanças factuais e evidências recentes', icon: <SearchCheck className="h-4 w-4" />, color: 'text-yellow-400' },
   { name: '/todos',     args: '',             example: '/todos',                          description: 'Traduz para português, adapta e revisa normas em sequência', icon: <Sparkles className="h-4 w-4" />, color: 'text-red-400' },
   { name: '/3',         args: '<ias> <cmd>',  example: '/3 gemini openai claude /ajustar expandir', description: MULTI3_SHORT_DESCRIPTION, icon: <Cpu className="h-4 w-4" />, color: 'text-indigo-400' },
   { name: '/limpar',    args: '',             example: '/limpar',                         description: 'Limpa a conversa',                                  icon: <Trash2      className="h-4 w-4" />, color: 'text-gray-400' },
@@ -715,14 +715,20 @@ export default function ProjectAgentPage() {
 
           const asstId = appendMessage({
             role: 'assistant', command: cmd, status: 'running',
-            content: 'Verificando vigência das leis e normas citadas...',
+            content: 'Pesquisando mudanças factuais e evidências recentes na web...',
             aiProvider: currentAI.provider, aiModel: currentAI.model,
           });
 
           const res = await fetch(`/api/norms-update`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ documentId: selectedDocId, provider: currentAI.provider, model: currentAI.model }),
+            body: JSON.stringify({
+              documentId: selectedDocId,
+              provider: currentAI.provider,
+              model: currentAI.model,
+              reviewScope: 'currentness',
+              researchDepth: 'deep'
+            }),
           });
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -732,7 +738,7 @@ export default function ProjectAgentPage() {
           const data = await res.json();
           updateMessage(asstId, {
             status: 'success',
-            content: 'Revisão de normas iniciada.',
+            content: 'Revisão aprofundada de atualidade iniciada.',
             jobId: data.jobId,
             resultHref: `/norms-update/${data.jobId}`,
           });

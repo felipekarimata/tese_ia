@@ -40,6 +40,9 @@ export async function POST(
     const acceptedReferences = allReferences.filter(r =>
       acceptedReferenceIds.includes(r.id)
     );
+    const isCurrentnessReview = acceptedReferences.some(
+      reference => reference.reviewScope === 'currentness'
+    );
 
     console.log(`[NORMS-APPLY] Applying ${acceptedReferences.length} updates`);
 
@@ -113,8 +116,10 @@ export async function POST(
         p_chapter_id: chapterId,
         p_file_path: newFileName,
         p_parent_version_id: versionId,
-        p_created_by_operation: 'norms-update',
-        p_metadata: { appliedNormIds: acceptedReferenceIds, normsJobId: jobId }
+        p_created_by_operation: isCurrentnessReview ? 'currentness-review' : 'norms-update',
+        p_metadata: isCurrentnessReview
+          ? { appliedFindingIds: acceptedReferenceIds, reviewJobId: jobId }
+          : { appliedNormIds: acceptedReferenceIds, normsJobId: jobId }
       });
 
       if (rpcError) {
@@ -128,7 +133,9 @@ export async function POST(
         success: true,
         chapterId,
         newVersionId,
-        message: 'Normas aplicadas. Nova versão do capítulo criada.'
+        message: isCurrentnessReview
+          ? 'Atualizações aplicadas. Nova versão do capítulo criada.'
+          : 'Normas aplicadas. Nova versão do capítulo criada.'
       });
     }
 
@@ -188,7 +195,7 @@ export async function POST(
     return new NextResponse(updatedBuffer, {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'Content-Disposition': `attachment; filename="${sanitizedTitle}_normas_atualizadas.docx"`
+        'Content-Disposition': `attachment; filename="${sanitizedTitle}_${isCurrentnessReview ? 'revisado' : 'normas_atualizadas'}.docx"`
       }
     });
 
