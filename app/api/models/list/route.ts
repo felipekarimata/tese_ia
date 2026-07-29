@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { state } from '@/lib/state';
 import OpenAI from 'openai';
+import { RECOMMENDED_MODELS } from '@/lib/ai/model-registry';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
@@ -19,7 +20,7 @@ async function listOpenAIModels(apiKey: string): Promise<string[]> {
       .map(m => m.id)
       .sort();
 
-    return gptModels;
+    return Array.from(new Set([...RECOMMENDED_MODELS.openai, ...gptModels]));
   } catch (error: any) {
     throw new Error(`OpenAI: ${error.message}`);
   }
@@ -34,12 +35,7 @@ async function listGeminiModels(apiKey: string): Promise<string[]> {
 
     if (!response.ok) {
       // Se falhar, retornar modelos conhecidos que funcionam
-      return [
-        'gemini-3-flash-preview',
-        'gemini-2.5-flash',
-        'gemini-2.5-pro',
-        'gemini-2.5-flash-lite'
-      ];
+      return RECOMMENDED_MODELS.gemini;
     }
 
     const data = await response.json();
@@ -57,32 +53,17 @@ async function listGeminiModels(apiKey: string): Promise<string[]> {
       .map((m: any) => m.name.replace('models/', ''))
       .sort() || [];
 
-    return models.length > 0 ? models : [
-      'gemini-3-flash-preview',
-      'gemini-2.5-flash',
-      'gemini-2.5-pro',
-      'gemini-2.5-flash-lite'
-    ];
+    return models.length > 0
+      ? Array.from(new Set([...RECOMMENDED_MODELS.gemini, ...models]))
+      : RECOMMENDED_MODELS.gemini;
   } catch (error: any) {
     // Retornar modelos conhecidos em caso de erro
-    return [
-      'gemini-3-flash-preview',
-      'gemini-2.5-flash',
-      'gemini-2.5-pro',
-      'gemini-2.5-flash-lite'
-    ];
+    return RECOMMENDED_MODELS.gemini;
   }
 }
 
 function listAnthropicModelsStatic(): string[] {
-  return [
-    'claude-sonnet-4-6',
-    'claude-opus-4-6',
-    'claude-haiku-4-5',
-    'claude-sonnet-4-20250514',
-    'claude-3-5-sonnet-20241022',
-    'claude-3-5-haiku-20241022'
-  ];
+  return RECOMMENDED_MODELS.anthropic;
 }
 
 async function listGrokModels(apiKey: string): Promise<string[]> {
@@ -96,28 +77,18 @@ async function listGrokModels(apiKey: string): Promise<string[]> {
 
     if (!response.ok) {
       // Se falhar, retornar modelos conhecidos
-      return [
-        'grok-4-1-fast-non-reasoning',
-        'grok-4-1-fast-reasoning',
-        'grok-4.20-0309-non-reasoning'
-      ];
+      return RECOMMENDED_MODELS.grok;
     }
 
     const data = await response.json();
     const models = data.data?.map((m: any) => m.id) || [];
 
-    return models.length > 0 ? models : [
-      'grok-4-1-fast-non-reasoning',
-      'grok-4-1-fast-reasoning',
-      'grok-4.20-0309-non-reasoning'
-    ];
+    return models.length > 0
+      ? Array.from(new Set([...RECOMMENDED_MODELS.grok, ...models]))
+      : RECOMMENDED_MODELS.grok;
   } catch (error: any) {
     // Retornar modelos conhecidos em caso de erro
-    return [
-      'grok-4-1-fast-non-reasoning',
-      'grok-4-1-fast-reasoning',
-      'grok-4.20-0309-non-reasoning'
-    ];
+    return RECOMMENDED_MODELS.grok;
   }
 }
 

@@ -20,7 +20,7 @@ export async function POST(
       skillName,
       args,
       provider = 'openai',
-      model = 'gpt-5.4-mini',
+      model = 'gpt-5.6',
     }: {
       skillName: string;
       args?: string;

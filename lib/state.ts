@@ -3,6 +3,7 @@ import { TranslationProgress } from './translation/types';
 import type { Thesis, Chapter, ChapterVersion, ChapterChunk } from './thesis/types';
 import type { SkillsSettings } from './skills/types';
 import { DEFAULT_SKILLS_SETTINGS } from './skills/types';
+import { RECOMMENDED_MODELS } from './ai/model-registry';
 
 export type Chunk = {
   ix: number;
@@ -152,19 +153,10 @@ export const state: {
     xaiKey: process.env.XAI_API_KEY ?? "",
     anthropicKey: process.env.ANTHROPIC_API_KEY ?? "",
     models: {
-      openai: ["gpt-5.4-mini", "gpt-5.4"],
-      gemini: [
-        "gemini-3-flash-preview",
-        "gemini-2.5-flash",
-        "gemini-2.5-pro",
-        "gemini-2.5-flash-lite"
-      ],
-      grok: [
-        "grok-4-1-fast-non-reasoning",
-        "grok-4-1-fast-reasoning",
-        "grok-4.20-0309-non-reasoning"
-      ],
-      anthropic: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"]
+      openai: [...RECOMMENDED_MODELS.openai],
+      gemini: [...RECOMMENDED_MODELS.gemini],
+      grok: [...RECOMMENDED_MODELS.grok],
+      anthropic: [...RECOMMENDED_MODELS.anthropic]
     },
     documentProcessing: {
       mode: 'auto',
@@ -174,6 +166,11 @@ export const state: {
     },
     skills: { ...DEFAULT_SKILLS_SETTINGS },
     pricesUSD: {
+      "gpt-5.6": { in: 0.005, out: 0.03 },
+      "gpt-5.6-sol": { in: 0.005, out: 0.03 },
+      "grok-4.5": { in: 0.002, out: 0.006 },
+      "claude-fable-5": { in: 0.01, out: 0.05 },
+      "claude-opus-5": { in: 0.005, out: 0.025 },
       // Preços aproximados por 1K tokens (valores legados mantidos para settings antigos)
       "gpt-5.4": { in: 0.0025, out: 0.015 },
       "gpt-5.4-mini": { in: 0.00075, out: 0.0045 },

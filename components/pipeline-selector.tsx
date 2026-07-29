@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { Loader2, Rocket } from 'lucide-react';
 import { PipelineOperation, OperationConfigs, OPERATION_METADATA } from '@/lib/pipeline/types';
 import { getAIErrorMessage } from '@/lib/ai-error-message';
+import { RECOMMENDED_MODELS } from '@/lib/ai/model-registry';
 
 type PipelineSelectorProps = {
   documentId: string;
@@ -405,10 +406,10 @@ function TranslateConfig({ config, onChange }: any) {
 
 function ModelSelector({ config, onChange, providers }: { config: any; onChange: any; providers: string[] }) {
   const MODELS: Record<string, string[]> = {
-    openai: ['gpt-5.4-mini', 'gpt-5.4'],
-    gemini: ['gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-pro'],
-    grok: ['grok-4-1-fast-non-reasoning', 'grok-4-1-fast-reasoning'],
-    anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5']
+    openai: RECOMMENDED_MODELS.openai,
+    gemini: RECOMMENDED_MODELS.gemini,
+    grok: RECOMMENDED_MODELS.grok,
+    anthropic: RECOMMENDED_MODELS.anthropic
   };
 
   return (
@@ -463,19 +464,19 @@ function FlowArrow() {
 function getDefaultConfig(op: PipelineOperation): any {
   switch (op) {
     case 'adjust':
-      return { instructions: '', creativity: 5, provider: 'openai', model: 'gpt-5.4-mini' };
+      return { instructions: '', creativity: 5, provider: 'openai', model: 'gpt-5.6' };
     case 'update':
-      return { provider: 'gemini', model: 'gemini-3-flash-preview' };
+      return { provider: 'gemini', model: 'gemini-3.5-flash' };
     case 'improve':
-      return { provider: 'openai', model: 'gpt-5.4-mini' };
+      return { provider: 'openai', model: 'gpt-5.6' };
     case 'adapt':
-      return { style: 'simplified', provider: 'openai', model: 'gpt-5.4-mini' };
+      return { style: 'simplified', provider: 'openai', model: 'gpt-5.6' };
     case 'translate':
       return {
         sourceLanguage: 'auto',
         targetLanguage: '',
         provider: 'gemini',
-        model: 'gemini-3-flash-preview'
+        model: 'gemini-3.5-flash'
       };
   }
 }

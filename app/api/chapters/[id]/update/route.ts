@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createOperationJob, executeUpdateOperation } from '@/lib/thesis/chapter-operations';
 import { AIProvider } from '@/lib/ai/types';
 import { supabase } from '@/lib/supabase';
+import { DEFAULT_MODELS } from '@/lib/ai/model-registry';
+import type { ResearchDepth } from '@/lib/ai/research';
 
 type ReferenceInput = {
   type: 'link' | 'file';
@@ -24,15 +26,17 @@ export async function POST(
     const {
       versionId,
       provider = 'gemini',
-      model = 'gemini-2.5-flash',
+      model = DEFAULT_MODELS.gemini,
       references = [],
-      contextVersionIds = []
+      contextVersionIds = [],
+      researchDepth = 'quick'
     }: {
       versionId: string;
       provider?: AIProvider;
       model?: string;
       references?: ReferenceInput[];
       contextVersionIds?: string[];
+      researchDepth?: ResearchDepth;
     } = body;
 
     if (!versionId) {
@@ -82,7 +86,8 @@ export async function POST(
       provider,
       model,
       references,
-      contextVersionIds
+      contextVersionIds,
+      researchDepth
     ).catch(err => {
       console.error('[CHAPTER-UPDATE-API] Background error:', err);
     });
@@ -93,6 +98,7 @@ export async function POST(
       chapterId,
       versionId,
       referencesCount: references.length,
+      researchDepth,
       contextChaptersCount: contextVersionIds.length
     });
 

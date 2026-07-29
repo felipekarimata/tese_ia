@@ -28,6 +28,18 @@ export type NormReference = {
   updateDescription?: string;    // Descrição da mudança
   updateType?: UpdateType;       // Tipo de atualização necessária
   sourceUrl?: string;            // URL da fonte oficial
+  evidence?: Array<{
+    id: string;
+    title: string;
+    url: string;
+    domain: string;
+    sourceType: 'official' | 'academic' | 'journal' | 'news' | 'web';
+    publishedAt?: string;
+    excerpt?: string;
+    citedText?: string;
+  }>;
+  sourceIds?: string[];
+  researchQueries?: string[];
   isPaid?: boolean;              // Se é norma paga (ABNT/ISO)
 
   // Para atualização automática
@@ -60,7 +72,7 @@ export type NormUpdateJob = {
 };
 
 export type NormUpdateOptions = {
-  provider: 'openai' | 'gemini' | 'anthropic';
+  provider: 'openai' | 'gemini' | 'anthropic' | 'grok';
   model: string;
   onProgress?: (progress: {
     current: number;

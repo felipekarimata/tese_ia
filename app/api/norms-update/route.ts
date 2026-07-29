@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     const {
       documentId,
       provider = 'gemini',
-      model = 'gemini-2.5-flash',
+      model = 'gemini-3.5-flash',
       sourceDocumentPath // Optional: for pipeline usage
     } = await req.json();
 

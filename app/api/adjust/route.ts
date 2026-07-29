@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
       instructions,
       creativity = 5,
       provider = 'openai',
-      model = 'gpt-5.4-mini',
+      model = 'gpt-5.6',
       useGrounding = false
     }: {
       documentId?: string;
@@ -180,7 +180,7 @@ async function executeAdjust(
           ? (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!
           : provider === 'anthropic'
             ? process.env.ANTHROPIC_API_KEY!
-            : process.env.GROK_API_KEY!;
+            : (process.env.XAI_API_KEY || process.env.GROK_API_KEY)!;
 
     // Generate adjustment suggestions
     const suggestions = await analyzeDocumentForAdjustments(

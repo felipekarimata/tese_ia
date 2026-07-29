@@ -14,6 +14,7 @@ import {
   OperationConfigs,
   OPERATION_METADATA
 } from '@/lib/pipeline/types';
+import { RECOMMENDED_MODELS } from '@/lib/ai/model-registry';
 
 export const PIPELINE_OPERATIONS: PipelineOperation[] = [
   'adjust',
@@ -24,10 +25,10 @@ export const PIPELINE_OPERATIONS: PipelineOperation[] = [
 ];
 
 const MODELS: Record<string, string[]> = {
-  openai: ['gpt-5.4-mini', 'gpt-5.4'],
-  gemini: ['gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-pro'],
-  grok: ['grok-4-1-fast-non-reasoning', 'grok-4-1-fast-reasoning'],
-  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5']
+  openai: RECOMMENDED_MODELS.openai,
+  gemini: RECOMMENDED_MODELS.gemini,
+  grok: RECOMMENDED_MODELS.grok,
+  anthropic: RECOMMENDED_MODELS.anthropic
 };
 
 export function getDefaultProviders(op: PipelineOperation): string[] {
@@ -51,10 +52,10 @@ export function getDefaultModel(provider: string): string {
   return (
     MODELS[provider]?.[0] ||
     (provider === 'gemini'
-      ? 'gemini-3-flash-preview'
+      ? 'gemini-3.5-flash'
       : provider === 'anthropic'
-        ? 'claude-sonnet-4-6'
-        : 'gpt-5.4-mini')
+        ? 'claude-fable-5'
+        : 'gpt-5.6')
   );
 }
 

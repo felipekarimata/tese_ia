@@ -259,7 +259,7 @@ export class PipelineEngine {
           ? (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!
           : adjustConfig.provider === 'anthropic'
             ? process.env.ANTHROPIC_API_KEY!
-            : process.env.GROK_API_KEY!;
+            : (process.env.XAI_API_KEY || process.env.GROK_API_KEY)!;
 
     try {
       // Generate adjustment suggestions directly
@@ -731,7 +731,7 @@ export class PipelineEngine {
           ? (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!
           : adaptConfig.provider === 'anthropic'
             ? process.env.ANTHROPIC_API_KEY!
-            : process.env.GROK_API_KEY!;
+            : (process.env.XAI_API_KEY || process.env.GROK_API_KEY)!;
 
     console.log(`[PIPELINE ADAPT ${adaptJobId}] Starting adaptation analysis with provider: ${adaptConfig.provider}, model: ${adaptConfig.model}`);
 

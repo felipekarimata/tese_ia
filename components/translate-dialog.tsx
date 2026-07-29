@@ -22,6 +22,7 @@ import { Label } from '@/components/ui/label';
 import { Languages, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getAIErrorMessage } from '@/lib/ai-error-message';
+import { RECOMMENDED_MODELS } from '@/lib/ai/model-registry';
 
 type TranslationDialogProps = {
   documentId: string;
@@ -49,15 +50,10 @@ const PROVIDERS = {
 };
 
 const MODELS_BY_PROVIDER: Record<string, string[]> = {
-  openai: ['gpt-5.4-mini', 'gpt-5.4'],
-  gemini: [
-    'gemini-3-flash-preview',
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-    'gemini-2.5-flash-lite'
-  ],
-  grok: ['grok-4-1-fast-non-reasoning', 'grok-4-1-fast-reasoning'],
-  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5']
+  openai: RECOMMENDED_MODELS.openai,
+  gemini: RECOMMENDED_MODELS.gemini,
+  grok: RECOMMENDED_MODELS.grok,
+  anthropic: RECOMMENDED_MODELS.anthropic
 };
 
 export function TranslateDialog({ documentId, documentTitle }: TranslationDialogProps) {

@@ -123,7 +123,7 @@ export function getApiKey(provider: AIProvider): string {
       : provider === 'anthropic'
         ? process.env.ANTHROPIC_API_KEY
         : provider === 'grok'
-          ? process.env.GROK_API_KEY
+          ? (process.env.XAI_API_KEY || process.env.GROK_API_KEY)
           : process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 
   if (!apiKey) throw new Error(`Chave de API não configurada para ${provider}`);

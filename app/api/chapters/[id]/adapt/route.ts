@@ -26,7 +26,7 @@ export async function POST(
       style = 'simplified',
       targetAudience,
       provider = 'openai',
-      model = 'gpt-5.4-mini',
+      model = 'gpt-5.6',
       references = [],
       contextVersionIds = []
     }: {

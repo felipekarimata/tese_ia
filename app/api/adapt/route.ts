@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       style = 'simplified',
       targetAudience,
       provider = 'openai',
-      model = 'gpt-5.4-mini'
+      model = 'gpt-5.6'
     }: {
       documentId?: string;
       sourceDocumentPath?: string;
@@ -176,7 +176,7 @@ async function executeAdapt(
           ? (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!
           : provider === 'anthropic'
             ? process.env.ANTHROPIC_API_KEY!
-            : process.env.GROK_API_KEY!;
+            : (process.env.XAI_API_KEY || process.env.GROK_API_KEY)!;
 
     // Generate adaptation suggestions
     const suggestions = await analyzeDocumentForAdaptation(

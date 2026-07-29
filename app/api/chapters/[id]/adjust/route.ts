@@ -26,7 +26,7 @@ export async function POST(
       instructions,
       creativity = 5,
       provider = 'openai',
-      model = 'gpt-5.4-mini',
+      model = 'gpt-5.6',
       useGrounding = false,
       references = [],
       contextVersionIds = []

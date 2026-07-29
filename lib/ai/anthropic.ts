@@ -29,7 +29,7 @@ export async function anthropicChat(params: {
     model: params.model,
     max_tokens: params.maxTokens ?? 8192,
     ...(params.system ? { system: params.system } : {}),
-    temperature: params.temperature ?? 0.3,
+    ...(params.temperature === undefined ? {} : { temperature: params.temperature }),
     messages: [{ role: 'user', content: params.user }]
   });
   const text = textFromAnthropicContent(response.content).trim();

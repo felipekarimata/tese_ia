@@ -87,6 +87,8 @@ export default function ChapterVersionPage() {
   const [adjustModel, setAdjustModel] = useState('');
   const [adaptProvider, setAdaptProvider] = useState<ChapterOpAIProvider>('openai');
   const [adaptModel, setAdaptModel] = useState('');
+  const [updateProvider, setUpdateProvider] = useState<ChapterOpAIProvider>('openai');
+  const [updateModel, setUpdateModel] = useState('');
   const [revisarNormsProvider, setRevisarNormsProvider] = useState<ChapterOpAIProvider>('gemini');
   const [revisarNormsModel, setRevisarNormsModel] = useState('');
 
@@ -94,6 +96,7 @@ export default function ChapterVersionPage() {
   const [translateDialogOpen, setTranslateDialogOpen] = useState(false);
   const [adjustDialogOpen, setAdjustDialogOpen] = useState(false);
   const [adaptDialogOpen, setAdaptDialogOpen] = useState(false);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [revisarDialogOpen, setRevisarDialogOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
 
@@ -104,12 +107,14 @@ export default function ChapterVersionPage() {
   const [adjustUseGrounding, setAdjustUseGrounding] = useState(false);
   const [adaptStyle, setAdaptStyle] = useState<'academic' | 'professional' | 'simplified' | 'custom'>('simplified');
   const [adaptTargetAudience, setAdaptTargetAudience] = useState('');
+  const [researchDepth, setResearchDepth] = useState<'quick' | 'deep'>('quick');
   const [revisarAtualizarNormas, setRevisarAtualizarNormas] = useState(false);
 
   // References
   const [translateReferences, setTranslateReferences] = useState<ReferenceItem[]>([]);
   const [adjustReferences, setAdjustReferences] = useState<ReferenceItem[]>([]);
   const [adaptReferences, setAdaptReferences] = useState<ReferenceItem[]>([]);
+  const [updateReferences, setUpdateReferences] = useState<ReferenceItem[]>([]);
 
   // Loading states
   const [processing, setProcessing] = useState(false);
@@ -164,6 +169,7 @@ export default function ChapterVersionPage() {
         setTranslateModel((prev) => prev || first('openai'));
         setAdjustModel((prev) => prev || first('gemini'));
         setAdaptModel((prev) => prev || first('openai'));
+        setUpdateModel((prev) => prev || first('openai'));
         setRevisarNormsModel((prev) => prev || first('gemini'));
       } catch {}
     })();
@@ -281,6 +287,38 @@ export default function ChapterVersionPage() {
       toast.error(error.message || 'Erro ao iniciar revisão');
     } finally {
       setRevisarLoading(false);
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!updateModel) return toast.error('Selecione o modelo de IA');
+    try {
+      setProcessing(true);
+      const response = await fetch(`/api/chapters/${chapterId}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          versionId,
+          provider: updateProvider,
+          model: updateModel,
+          researchDepth,
+          references: updateReferences.map(r => ({
+            type: r.type, title: r.title, description: r.description, url: r.url,
+            filePath: r.filePath, fileName: r.fileName, fileSize: r.fileSize, mimeType: r.mimeType
+          })),
+          contextVersionIds: []
+        })
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Falha ao iniciar revisão de atualidade');
+      }
+      const data = await response.json();
+      setUpdateDialogOpen(false);
+      router.push(`/chapters/${chapterId}/update/${data.jobId}`);
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao iniciar revisão de atualidade');
+      setProcessing(false);
     }
   };
 
@@ -596,6 +634,69 @@ export default function ChapterVersionPage() {
             </DialogContent>
           </Dialog>
 
+          {/* Revisão de atualidade com pesquisa web e fontes */}
+          <Dialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
+            <DialogTrigger asChild>
+              <OperationCard
+                icon={<Sparkles className="h-5 w-5 text-cyan-400" />}
+                iconBg="bg-cyan-500/15"
+                title="Revisão de atualidade"
+                description="Pesquisa dados e literatura recentes com fontes auditáveis"
+              />
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl max-h-[90vh]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-cyan-400" />
+                  Revisão de atualidade
+                </DialogTitle>
+                <DialogDescription>
+                  Pesquisa a web por secção e propõe apenas alterações factuais sustentadas por fontes clicáveis. As referências manuais são opcionais.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="px-6 pt-2">
+                <ChapterOperationAiFields
+                  provider={updateProvider}
+                  model={updateModel}
+                  onProviderChange={(p) => {
+                    setUpdateProvider(p);
+                    setUpdateModel(modelsForProvider(settingsModels, p)[0] || '');
+                  }}
+                  onModelChange={setUpdateModel}
+                  settingsModels={settingsModels}
+                  disabled={processing}
+                />
+              </div>
+              <ScrollArea className="max-h-[55vh] pr-4">
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Profundidade da pesquisa</Label>
+                    <Select value={researchDepth} onValueChange={(value: 'quick' | 'deep') => setResearchDepth(value)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="quick">Rápida — menos pesquisas, menor custo</SelectItem>
+                        <SelectItem value="deep">Profunda — mais fontes e maior latência/custo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 p-3 text-xs text-cyan-100/80">
+                    Cada sugestão precisa apontar para um trecho exato do capítulo e citar pelo menos uma fonte realmente devolvida pela pesquisa. Nenhuma alteração é aplicada sem a sua aprovação.
+                  </div>
+                  <div className="border-t border-white/10 pt-4 space-y-2">
+                    <Label>Materiais de referência (opcional)</Label>
+                    <ReferenceManager references={updateReferences} onChange={setUpdateReferences} />
+                  </div>
+                </div>
+              </ScrollArea>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setUpdateDialogOpen(false)} disabled={processing}>Cancelar</Button>
+                <Button onClick={handleUpdate} disabled={processing || !updateModel}>
+                  {processing ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Iniciando...</>) : 'Pesquisar atualizações'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           {/* Revisar leis */}
           <Dialog open={revisarDialogOpen} onOpenChange={setRevisarDialogOpen}>
             <DialogTrigger asChild>
@@ -615,6 +716,7 @@ export default function ChapterVersionPage() {
                   provider={revisarNormsProvider} model={revisarNormsModel}
                   onProviderChange={(p) => { setRevisarNormsProvider(p); setRevisarNormsModel(modelsForProvider(settingsModels, p)[0] || ''); }}
                   onModelChange={setRevisarNormsModel} settingsModels={settingsModels} disabled={revisarLoading}
+                  providers={['openai', 'gemini', 'anthropic']}
                 />
                 <div className="flex items-start gap-3 p-3 rounded-lg border border-white/10 bg-white/5">
                   <Checkbox id="revisar-normas" checked={revisarAtualizarNormas}

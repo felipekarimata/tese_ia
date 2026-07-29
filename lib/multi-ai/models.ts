@@ -1,11 +1,5 @@
 import { AIProvider } from '@/lib/ai/types';
-
-const DEFAULT_MODELS: Record<AIProvider, string> = {
-  gemini: 'gemini-2.5-flash',
-  openai: 'gpt-5.4-mini',
-  anthropic: 'claude-sonnet-4-6',
-  grok: 'grok-3-mini',
-};
+import { DEFAULT_MODELS } from '@/lib/ai/model-registry';
 
 export function multi3DefaultModel(provider: AIProvider): string {
   return DEFAULT_MODELS[provider];

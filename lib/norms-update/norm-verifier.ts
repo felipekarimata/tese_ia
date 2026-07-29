@@ -1,6 +1,12 @@
 import { NormReference, NormStatus, UpdateType } from './types';
-import { isGemini429, parseGeminiRetryDelayMs, sleep } from '@/lib/ai/gemini-retry';
-import { isOpenAIGpt5Family, openaiCompletionTokenLimit } from '@/lib/ai/openai-compat';
+import type { AIProvider } from '@/lib/ai/types';
+import {
+  formatResearchEvidence,
+  generateStructuredJson,
+  normalizeSources,
+  researchWithWebSearch,
+  type ResearchResult
+} from '@/lib/ai/research';
 import { verifyWithOfficialSources } from './sources/official-sources';
 
 /**
@@ -9,10 +15,9 @@ import { verifyWithOfficialSources } from './sources/official-sources';
  */
 export async function verifyNormStatus(
   reference: NormReference,
-  provider: 'openai' | 'gemini' | 'anthropic',
+  provider: AIProvider,
   model: string,
-  apiKey: string,
-  webSearchFn?: (query: string) => Promise<string> // Opcional - só para OpenAI
+  apiKey: string
 ): Promise<NormReference> {
 
   console.log(`[NORMS] Verifying: ${reference.type} ${reference.number}`);
@@ -21,6 +26,10 @@ export async function verifyNormStatus(
     // 1) Fontes oficiais (LexML, Senado) para leis/decretos/portarias/resoluções brasileiras
     const officialResult = await verifyWithOfficialSources(reference);
     if (officialResult) {
+      const officialEvidence = normalizeSources(officialResult.sourceUrl ? [{
+        title: 'Fonte oficial',
+        url: officialResult.sourceUrl
+      }] : []);
       return {
         ...reference,
         status: officialResult.status,
@@ -29,28 +38,30 @@ export async function verifyNormStatus(
         updateDescription: officialResult.updateDescription,
         updateType: officialResult.updateType,
         sourceUrl: officialResult.sourceUrl,
+        evidence: officialEvidence,
+        sourceIds: officialEvidence.map(source => source.id),
         suggestedText: officialResult.suggestedText,
         confidence: officialResult.confidence,
         isPaid: false
       };
     }
 
-    // 2) Fallback: IA (Gemini com Google Search, Claude com web search, ou OpenAI com webSearchFn)
-    let searchResults = '';
-
-    if (provider === 'openai' && webSearchFn) {
-      const searchQuery = buildSearchQuery(reference);
-      console.log(`[NORMS] Searching: ${searchQuery}`);
-      searchResults = await webSearchFn(searchQuery);
-    } else if (provider === 'gemini') {
-      console.log(`[NORMS] Using Gemini with Google Search grounding`);
-    } else if (provider === 'anthropic') {
-      console.log(`[NORMS] Using Claude with Anthropic web search tool`);
-    }
+    // 2) Fallback: todos os provedores fazem pesquisa web real e devolvem fontes auditáveis.
+    const searchQuery = buildSearchQuery(reference);
+    console.log(`[NORMS] Searching with ${provider}: ${searchQuery}`);
+    const research = await researchWithWebSearch({
+      provider,
+      model,
+      apiKey,
+      topic: searchQuery,
+      context: `${reference.fullText}\n\nContexto no documento: ${reference.context}`,
+      depth: 'quick',
+      preferredDomains: ['planalto.gov.br', 'gov.br', 'lexml.gov.br', 'senado.leg.br', 'abnt.org.br', 'iso.org']
+    });
 
     const analysis = await analyzeSearchResults(
       reference,
-      searchResults,
+      research,
       provider,
       model,
       apiKey
@@ -114,32 +125,26 @@ function buildSearchQuery(reference: NormReference): string {
  */
 async function analyzeSearchResults(
   reference: NormReference,
-  searchResults: string,
-  provider: 'openai' | 'gemini' | 'anthropic',
+  research: ResearchResult,
+  provider: AIProvider,
   model: string,
   apiKey: string
 ): Promise<Partial<NormReference>> {
 
   const isPaid = reference.type === 'abnt' || reference.type === 'iso';
 
-  const webGrounded =
-    provider === 'gemini' || provider === 'anthropic';
-  const webHint =
-    provider === 'gemini'
-      ? 'Use Google Search para verificar'
-      : provider === 'anthropic'
-        ? 'Use a pesquisa na web (ferramenta disponível) para verificar'
-        : 'Analise os resultados de busca abaixo e determine';
-
-  // Para Gemini/Claude, pesquisa na web; para OpenAI, trechos de busca passados em searchResults
-  const prompt = `Você é um especialista em análise de normas jurídicas e técnicas. ${webHint} o status da seguinte norma:
+  const prompt = `Você é um especialista em análise de normas jurídicas e técnicas. Determine o status da norma usando exclusivamente a evidência pesquisada abaixo:
 
 NORMA ANALISADA:
 Tipo: ${reference.type}
 Número: ${reference.number}
 Texto: ${reference.fullText}
 
-${webGrounded ? 'INSTRUÇÕES: Faça uma pesquisa na web para verificar o status atual desta norma. Procure em sites oficiais como planalto.gov.br, eur-lex.europa.eu, boe.es, abnt.org.br, iso.org, etc.' : `RESULTADOS DA BUSCA:\n---\n${searchResults.substring(0, 4000)}\n---`}
+SÍNTESE DA PESQUISA:
+${research.text.substring(0, 8000)}
+
+FONTES VERIFICÁVEIS:
+${formatResearchEvidence(research.sources)}
 
 Determine:
 1. STATUS atual da norma:
@@ -167,7 +172,8 @@ IMPORTANTE:
 - Normas ABNT/ISO são PAGAS → sempre "manual"
 - Leis/Decretos brasileiros são PÚBLICOS → pode ser "auto"
 - Se não tiver certeza, marque como "desconhecido"
-- URL oficial da fonte (se disponível)
+- Indique em "sourceIds" apenas IDs da lista de fontes acima; nunca invente URLs
+- Sem evidência suficiente, use status "desconhecido", updateType "manual" e confiança baixa
 
 FORMATO DA RESPOSTA:
 Retorne APENAS um objeto JSON válido, sem markdown, sem explicações, sem texto adicional.
@@ -180,84 +186,20 @@ JSON:
   "updatedDate": "data da atualização (se disponível)",
   "updateDescription": "descrição breve da mudança",
   "updateType": "auto|manual|none",
-  "sourceUrl": "URL oficial da fonte",
+  "sourceIds": ["S1", "S2"],
   "isPaid": ${isPaid},
   "suggestedText": "texto sugerido para substituição (se updateType = auto)",
   "confidence": 0.95
 }`;
 
-  let response: string;
-
-  if (provider === 'openai') {
-    const OpenAI = (await import('openai')).default;
-    const openai = new OpenAI({ apiKey });
-
-    const completion = await openai.chat.completions.create({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      ...(isOpenAIGpt5Family(model) ? {} : { temperature: 0.2 }),
-      ...openaiCompletionTokenLimit(model, 8000),
-      response_format: { type: 'json_object' }
-    });
-
-    response = completion.choices[0]?.message?.content?.trim() || '{}';
-  } else if (provider === 'anthropic') {
-    const { anthropicChatWithWebSearch } = await import('@/lib/ai/anthropic');
-    const system =
-      'Você segue instruções com precisão. Ao final, responda APENAS com um objeto JSON válido conforme o formato pedido no enunciado, sem markdown.';
-    const { text } = await anthropicChatWithWebSearch({
-      apiKey,
-      model,
-      system,
-      user: prompt,
-      maxTokens: 8000,
-      maxWebUses: 10
-    });
-    response = text || '{}';
-  } else {
-    // Gemini com Google Search (grounding), com retry em 429
-    const groundingModel =
-      model === 'gemini-flash-latest' || /^gemini-3/i.test(model)
-        ? 'gemini-2.5-flash'
-        : model;
-    console.log(`[NORMS] Initializing Gemini with model: ${groundingModel} (original: ${model})`);
-
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const geminiModel = genAI.getGenerativeModel({
-      model: groundingModel,
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 8192
-      },
-      tools: [{ google_search: {} }]
-    });
-
-    const maxRetries = 4;
-    let lastErr: any;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`[NORMS] Calling Gemini API with Google Search for ${reference.number}...`);
-        const result = await geminiModel.generateContent(prompt);
-        console.log(`[NORMS] Gemini API response received for ${reference.number}`);
-        response = result.response.text().trim();
-        console.log(`[NORMS] Parsed text response:`, response);
-        lastErr = undefined;
-        break;
-      } catch (geminiError: any) {
-        lastErr = geminiError;
-        console.error(`[NORMS] Gemini API Error for ${reference.number}:`, geminiError.message);
-        if (isGemini429(geminiError) && attempt < maxRetries) {
-          const delayMs = parseGeminiRetryDelayMs(geminiError);
-          console.warn(`[NORMS] Gemini 429 (tentativa ${attempt}/${maxRetries}), aguardando ${(delayMs / 1000).toFixed(1)}s...`);
-          await sleep(delayMs);
-        } else {
-          throw geminiError;
-        }
-      }
-    }
-    if (lastErr) throw lastErr;
-  }
+  const response = await generateStructuredJson({
+    provider,
+    model,
+    apiKey,
+    system: 'Responda apenas com JSON válido. Use somente os IDs das fontes fornecidas.',
+    prompt,
+    maxTokens: 8000
+  });
 
   // Parse JSON - tenta múltiplas estratégias
   console.log(`[NORMS] Parsing JSON response for ${reference.number}...`);
@@ -309,13 +251,20 @@ JSON:
     updateType = 'manual';
   }
 
+  const validSourceIds = Array.isArray(parsed.sourceIds)
+    ? parsed.sourceIds.filter((id: unknown): id is string => typeof id === 'string' && research.sources.some(source => source.id === id))
+    : [];
+  const citedSources = research.sources.filter(source => validSourceIds.includes(source.id));
   const result = {
     status: parsed.status as NormStatus || 'desconhecido',
     updatedNumber: parsed.updatedNumber,
     updatedDate: parsed.updatedDate,
     updateDescription: parsed.updateDescription,
     updateType,
-    sourceUrl: parsed.sourceUrl,
+    sourceUrl: citedSources[0]?.url,
+    evidence: research.sources,
+    sourceIds: validSourceIds,
+    researchQueries: research.queries,
     isPaid: parsed.isPaid || isPaid,
     suggestedText: parsed.suggestedText,
     confidence: parsed.confidence || 0.5
@@ -330,10 +279,10 @@ JSON:
  */
 export async function verifyMultipleNorms(
   references: NormReference[],
-  provider: 'openai' | 'gemini' | 'anthropic',
+  provider: AIProvider,
   model: string,
   apiKey: string,
-  webSearchFn?: (query: string) => Promise<string>,
+  _legacyWebSearchFn?: ((query: string) => Promise<string>) | undefined,
   onProgress?: (current: number, total: number) => void
 ): Promise<NormReference[]> {
 
@@ -344,7 +293,7 @@ export async function verifyMultipleNorms(
     const batch = references.slice(i, i + batchSize);
 
     const batchResults = await Promise.all(
-      batch.map(ref => verifyNormStatus(ref, provider, model, apiKey, webSearchFn))
+      batch.map(ref => verifyNormStatus(ref, provider, model, apiKey))
     );
 
     results.push(...batchResults);

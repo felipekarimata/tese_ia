@@ -13,13 +13,14 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { DEFAULT_MODELS as APP_DEFAULT_MODELS, RECOMMENDED_MODELS } from '@/lib/ai/model-registry';
 
 type NormsProvider = 'gemini' | 'anthropic' | 'openai';
 
 const DEFAULT_MODELS: Record<NormsProvider, string> = {
-  gemini: 'gemini-2.5-flash',
-  anthropic: 'claude-sonnet-4-6',
-  openai: 'gpt-5.4-mini'
+  gemini: APP_DEFAULT_MODELS.gemini,
+  anthropic: APP_DEFAULT_MODELS.anthropic,
+  openai: APP_DEFAULT_MODELS.openai
 };
 
 interface UpdateNormsButtonProps {
@@ -45,11 +46,11 @@ export function UpdateNormsButton({ documentId, documentTitle }: UpdateNormsButt
         setModelsByProvider({
           gemini: s.models.gemini?.length
             ? s.models.gemini
-            : ['gemini-3-flash-preview', 'gemini-2.5-flash'],
+            : RECOMMENDED_MODELS.gemini,
           anthropic: s.models.anthropic?.length
             ? s.models.anthropic
-            : ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5'],
-          openai: s.models.openai?.length ? s.models.openai : ['gpt-5.4-mini', 'gpt-5.4']
+            : RECOMMENDED_MODELS.anthropic,
+          openai: s.models.openai?.length ? s.models.openai : RECOMMENDED_MODELS.openai
         });
       } catch {
         /* keep defaults */

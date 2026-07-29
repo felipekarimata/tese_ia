@@ -585,7 +585,25 @@ function ReferenceCard({
           </div>
         )}
 
-        {reference.sourceUrl && (
+        {!!reference.evidence?.length && (
+          <div className="space-y-2 rounded border border-blue-100 bg-blue-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-800">Fontes verificadas</p>
+            {reference.evidence.map((source) => (
+              <a
+                key={`${reference.id}-${source.id}`}
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-start gap-2 text-sm text-blue-700 hover:underline"
+              >
+                <ExternalLink className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                <span><strong>[{source.id}] {source.title}</strong><span className="block text-xs text-blue-600/70">{source.domain} · {source.sourceType}</span></span>
+              </a>
+            ))}
+          </div>
+        )}
+
+        {!reference.evidence?.length && reference.sourceUrl && (
           <a
             href={reference.sourceUrl}
             target="_blank"

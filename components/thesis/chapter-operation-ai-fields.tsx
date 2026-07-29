@@ -8,14 +8,15 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { RECOMMENDED_MODELS } from '@/lib/ai/model-registry';
 
 export type ChapterOpAIProvider = 'openai' | 'gemini' | 'grok' | 'anthropic';
 
 export const FALLBACK_MODELS_BY_PROVIDER: Record<ChapterOpAIProvider, string[]> = {
-  openai: ['gpt-5.4-mini', 'gpt-5.4'],
-  gemini: ['gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-pro'],
-  grok: ['grok-4-1-fast-non-reasoning', 'grok-4-1-fast-reasoning'],
-  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5']
+  openai: RECOMMENDED_MODELS.openai,
+  gemini: RECOMMENDED_MODELS.gemini,
+  grok: RECOMMENDED_MODELS.grok,
+  anthropic: RECOMMENDED_MODELS.anthropic
 };
 
 export function modelsForProvider(

@@ -4,6 +4,13 @@ import { extractDocumentStructure, generateGlobalContext } from '@/lib/improveme
 import { analyzeSectionForImprovements } from '@/lib/improvement/section-analyzer';
 import { analyzeDocumentForAdjustments } from '@/lib/adjust/processor';
 import { AIProvider } from '@/lib/ai/types';
+import { getProviderApiKey } from '@/lib/ai/api-keys';
+import {
+  formatResearchEvidence,
+  generateStructuredJson,
+  researchWithWebSearch,
+  type ResearchDepth
+} from '@/lib/ai/research';
 import { isGemini429, parseGeminiRetryDelayMs, sleep } from '@/lib/ai/gemini-retry';
 import { isOpenAIGpt5Family, openaiCompletionTokenLimit } from '@/lib/ai/openai-compat';
 import { SupportedLanguage } from '@/lib/translation/types';
@@ -614,7 +621,7 @@ export async function executeAdjustOperation(
           ? (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!
           : provider === 'anthropic'
             ? process.env.ANTHROPIC_API_KEY!
-            : process.env.GROK_API_KEY!;
+            : (process.env.XAI_API_KEY || process.env.GROK_API_KEY)!;
 
     const suggestions = await analyzeDocumentForAdjustments(
       sourcePath,
@@ -875,7 +882,8 @@ export async function executeUpdateOperation(
   provider: AIProvider,
   model: string,
   references: ReferenceInput[] = [],
-  contextVersionIds: string[] = []
+  contextVersionIds: string[] = [],
+  researchDepth: ResearchDepth = 'quick'
 ): Promise<string> {
   try {
     console.log(`[CHAPTER-UPDATE] Starting job ${jobId} for version ${versionId}`);
@@ -937,26 +945,25 @@ export async function executeUpdateOperation(
 
     // Gera contexto global com referências
     console.log(`[CHAPTER-UPDATE] Generating global context with references...`);
-    const apiKey =
-      provider === 'openai'
-        ? process.env.OPENAI_API_KEY!
-        : provider === 'anthropic'
-          ? process.env.ANTHROPIC_API_KEY!
-          : provider === 'grok'
-            ? process.env.GROK_API_KEY!
-            : (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!;
+    const apiKey = getProviderApiKey(provider);
 
     const updateContextProvider: 'openai' | 'gemini' | 'anthropic' =
       provider === 'anthropic' ? 'anthropic' : provider === 'openai' ? 'openai' : 'gemini';
 
-    const globalContext = await generateGlobalContext(
-      paragraphs,
-      structure,
-      updateContextProvider,
-      model,
-      apiKey,
-      combinedContext
-    );
+    const globalContext = provider === 'grok'
+      ? {
+          theme: structure.sections[0]?.title || 'Documento académico',
+          objective: 'Verificar a atualidade factual do capítulo',
+          chapterSummaries: structure.sections.map((section: any) => ({ title: section.title, summary: '' }))
+        }
+      : await generateGlobalContext(
+          paragraphs,
+          structure,
+          updateContextProvider,
+          model,
+          apiKey,
+          combinedContext
+        );
 
     await updateOperationJob(jobId, { progress: 60 });
 
@@ -979,7 +986,8 @@ export async function executeUpdateOperation(
         referencesContext,
         provider,
         model,
-        apiKey
+        apiKey,
+        researchDepth
       );
 
       allSuggestions.push(...suggestions);
@@ -993,36 +1001,16 @@ export async function executeUpdateOperation(
 
     console.log(`[CHAPTER-UPDATE] Generated ${allSuggestions.length} update suggestions`);
 
-    // Cria nova versão do capítulo (placeholder, suggestions will be applied when user accepts them)
-    const newVersionId = await createNewChapterVersion(
-      chapterId,
-      versionId,
-      sourcePath,
-      'update',
-      {
-        referencesCount: references.length,
-        suggestionsCount: allSuggestions.length,
-        contextChapters: contextSummary
-      }
-    );
-
-    await updateOperationJob(jobId, { progress: 85 });
-
-    // Processa chunks
-    await processChapterVersion(newVersionId);
-
-    await updateOperationJob(jobId, { progress: 95 });
-
-    // Save suggestions to job metadata
+    // Guarda sugestões para revisão humana; a versão só é criada após a aprovação.
     const { error: updateError } = await supabase
       .from('chapter_operation_jobs')
       .update({
         status: 'completed',
         progress: 100,
-        new_version_id: newVersionId,
         completed_at: new Date().toISOString(),
         metadata: {
           referencesCount: references.length,
+          researchDepth,
           contextChapters: contextSummary,
           suggestions: allSuggestions.map((s: any) => ({
             id: s.id,
@@ -1032,7 +1020,10 @@ export async function executeUpdateOperation(
             reason: s.reason || '',
             confidence: s.confidence || 0.9,
             chapterTitle: s.sectionTitle || s.chapterTitle || '',
-            referenceSource: s.referenceSource || ''
+            referenceSource: s.referenceSource || '',
+            evidence: s.evidence || [],
+            sourceIds: s.sourceIds || [],
+            researchQueries: s.researchQueries || []
           }))
         }
       })
@@ -1048,8 +1039,8 @@ export async function executeUpdateOperation(
       await fs.unlink(sourcePath);
     } catch {}
 
-    console.log(`[CHAPTER-UPDATE] Job ${jobId} completed! Created version ${newVersionId}`);
-    return newVersionId;
+    console.log(`[CHAPTER-UPDATE] Job ${jobId} completed and is waiting for human approval`);
+    return versionId;
 
   } catch (error: any) {
     console.error('[CHAPTER-UPDATE] Error:', error);
@@ -1073,9 +1064,26 @@ async function analyzeSectionForUpdates(
   referencesContext: string,
   provider: 'openai' | 'gemini' | 'grok' | 'anthropic',
   model: string,
-  apiKey: string
+  apiKey: string,
+  researchDepth: ResearchDepth = 'quick'
 ): Promise<any[]> {
   const fullText = paragraphs.join('\n\n');
+
+  if (fullText.trim().length < 200) return [];
+
+  const research = await researchWithWebSearch({
+    provider,
+    model,
+    apiKey,
+    depth: researchDepth,
+    topic: `Verificar a atualidade factual da secção académica "${sectionTitle}". Identificar dados, estatísticas, literatura, normas e factos que tenham mudado ou recebido evidência mais recente.`,
+    context: `${fullText}\n\n${referencesContext ? `Materiais indicados pelo utilizador:\n${referencesContext}` : ''}`
+  });
+
+  if (!research.sources.length) {
+    console.warn(`[UPDATE] No verifiable sources returned for section ${sectionTitle}`);
+    return [];
+  }
 
   // Format chapter summaries for context
   const chapterContext = globalContext.chapterSummaries && globalContext.chapterSummaries.length > 0
@@ -1110,6 +1118,12 @@ REGRAS IMPORTANTES:
 ✅ Cite qual referência suporta cada atualização sugerida
 ✅ Mantenha o tom acadêmico e formal
 
+SÍNTESE DA PESQUISA WEB:
+${research.text.substring(0, 10000)}
+
+FONTES PESQUISADAS (use apenas estes IDs):
+${formatResearchEvidence(research.sources)}
+
 TEXTO PARA ANÁLISE:
 ---
 ${fullText}
@@ -1125,7 +1139,8 @@ Para cada atualização sugerida, retorne JSON no formato:
       "reason": "explicação clara do motivo da atualização e qual referência suporta (1-2 frases)",
       "type": "factual_update|new_data|outdated_info|completeness|alignment",
       "confidence": 0.95,
-      "referenceSource": "breve indicação da referência que suporta esta atualização"
+      "referenceSource": "breve indicação da referência que suporta esta atualização",
+      "sourceIds": ["S1", "S2"]
     }
   ]
 }
@@ -1134,95 +1149,50 @@ IMPORTANTE:
 - "paragraphIndex" deve ser 0 para o primeiro parágrafo da seção, 1 para o segundo, etc
 - "originalText" deve ser um trecho COMPLETO e EXATO do texto (mínimo 30 caracteres)
 - "referenceSource" deve indicar qual referência ou parte dela suporta a atualização
+- "sourceIds" deve conter pelo menos um ID da lista de fontes; nunca invente URL ou ID
 - Se não houver atualizações necessárias baseadas nas referências, retorne: {"suggestions": []}
 - Confidence: 1.0 = certeza absoluta baseada em referência clara, 0.7 = sugestão moderada
 - Foque em 3-8 atualizações mais importantes (não precisa sugerir tudo)
-- Se não houver referências fornecidas, retorne: {"suggestions": []}
+- Se a evidência for insuficiente ou conflitante, não sugira a alteração
 
 Retorne APENAS o JSON, sem texto adicional.`;
 
   let response: string = '{"suggestions":[]}';
 
   try {
-    if (provider === 'openai' || provider === 'grok') {
-      const OpenAI = (await import('openai')).default;
-      const client = new OpenAI({
-        apiKey,
-        baseURL: provider === 'grok' ? 'https://api.x.ai/v1' : undefined
-      });
-
-      const completion = await client.chat.completions.create({
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        ...(provider === 'grok' || !isOpenAIGpt5Family(model) ? { temperature: 0.3 } : {}),
-        ...(provider === 'grok'
-          ? { max_tokens: 12000 }
-          : openaiCompletionTokenLimit(model, 12000)),
-        response_format: { type: 'json_object' }
-      });
-
-      response = completion.choices[0]?.message?.content?.trim() || '{"suggestions":[]}';
-    } else if (provider === 'anthropic') {
-      const { anthropicChat } = await import('@/lib/ai/anthropic');
-      const { text } = await anthropicChat({
-        apiKey,
-        model,
-        system:
-          'Responda apenas com um objeto JSON válido conforme o formato pedido. Sem markdown.',
-        user: prompt,
-        maxTokens: 12000,
-        temperature: 0.3
-      });
-      response = text || '{"suggestions":[]}';
-    } else {
-      // Gemini with 429 retry
-      const { GoogleGenerativeAI } = await import('@google/generative-ai');
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const geminiModel = genAI.getGenerativeModel({
-        model,
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json'
-        }
-      });
-      const maxRetries = 4;
-      let lastErr: any;
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          const result = await geminiModel.generateContent({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }]
-          });
-          response = result.response.text();
-          lastErr = undefined;
-          break;
-        } catch (err: any) {
-          lastErr = err;
-          if (isGemini429(err) && attempt < maxRetries) {
-            const delayMs = parseGeminiRetryDelayMs(err);
-            console.warn(`[UPDATE] Gemini 429 (tentativa ${attempt}/${maxRetries}), aguardando ${(delayMs / 1000).toFixed(1)}s...`);
-            await sleep(delayMs);
-          } else {
-            throw err;
-          }
-        }
-      }
-      if (lastErr) throw lastErr;
-    }
+    response = await generateStructuredJson({
+      provider,
+      model,
+      apiKey,
+      system: 'Responda apenas com JSON válido. Toda sugestão precisa citar IDs das fontes fornecidas.',
+      prompt,
+      maxTokens: 12000
+    });
 
     // Parse response
     const data = JSON.parse(response);
-    const suggestions: any[] = (data.suggestions || []).map((s: any) => ({
-      id: randomUUID(),
-      paragraphIndex: paragraphStartIndex + (s.paragraphIndex || 0),
-      sectionTitle,
-      originalText: s.originalText || '',
-      improvedText: s.improvedText || '',
-      reason: s.reason || '',
-      type: s.type || 'factual_update',
-      confidence: s.confidence || 0.9,
-      referenceSource: s.referenceSource || 'Referência fornecida'
-    }));
+    const suggestions: any[] = (data.suggestions || []).flatMap((s: any) => {
+      const sourceIds = Array.isArray(s.sourceIds)
+        ? s.sourceIds.filter((id: unknown): id is string => typeof id === 'string' && research.sources.some(source => source.id === id))
+        : [];
+      const originalText = typeof s.originalText === 'string' ? s.originalText.trim() : '';
+      if (sourceIds.length === 0 || originalText.length < 30 || !fullText.includes(originalText)) return [];
+      const evidence = research.sources.filter(source => sourceIds.includes(source.id));
+      return [{
+        id: randomUUID(),
+        paragraphIndex: paragraphStartIndex + (s.paragraphIndex || 0),
+        sectionTitle,
+        originalText,
+        improvedText: s.improvedText || '',
+        reason: s.reason || '',
+        type: s.type || 'factual_update',
+        confidence: s.confidence || 0.9,
+        referenceSource: s.referenceSource || evidence.map(source => source.title).join('; '),
+        evidence,
+        sourceIds,
+        researchQueries: research.queries
+      }];
+    });
 
     return suggestions;
 
@@ -1359,7 +1329,7 @@ function getAPIKey(provider: AIProvider): string {
     case 'gemini':
       return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY!;
     case 'grok':
-      return process.env.GROK_API_KEY!;
+      return (process.env.XAI_API_KEY || process.env.GROK_API_KEY)!;
     case 'anthropic':
       return process.env.ANTHROPIC_API_KEY!;
     default:
