@@ -11,7 +11,7 @@ export async function GET(
 
     const { data: version, error } = await supabase
       .from('chapter_versions')
-      .select('file_path, version_number')
+      .select('file_path, version_number, metadata')
       .eq('id', versionId)
       .single();
 
@@ -37,6 +37,7 @@ export async function GET(
         html,
         warnings,
         versionNumber: version.version_number,
+        metadata: version.metadata ?? {},
       });
     } catch {
       const text = buffer.toString('utf-8').replace(/[^\x20-\x7E\n\r\tÀ-ɏ]/g, ' ');
@@ -50,6 +51,7 @@ export async function GET(
         html,
         warnings: [],
         versionNumber: version.version_number,
+        metadata: version.metadata ?? {},
       });
     }
   } catch (error: any) {
