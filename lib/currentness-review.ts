@@ -3,6 +3,7 @@ import type { AIProvider } from '@/lib/ai/types';
 import {
   formatResearchEvidence,
   generateStructuredJson,
+  parseStructuredJsonResponse,
   researchWithWebSearch,
   type ResearchDepth,
   type ResearchSource
@@ -153,16 +154,66 @@ function verdictStatus(verdict: CurrentnessVerdict): NormStatus {
   return 'desconhecido';
 }
 
-function hasEnoughEvidence(verdict: CurrentnessVerdict, evidence: ResearchSource[]): boolean {
+export function hasEnoughEvidence(verdict: CurrentnessVerdict, evidence: ResearchSource[]): boolean {
   if (verdict === 'uncertain') return evidence.length > 0;
   if (evidence.some(source => source.sourceType === 'official')) return true;
-  return new Set(evidence.map(source => source.domain)).size >= 2;
+  return new Set(evidence.map(source => {
+    // Gemini grounding links commonly use one Google redirect domain for
+    // several independent publishers. Count distinct redirect URLs instead of
+    // collapsing every source into the same apparent domain.
+    if (/vertexaisearch|grounding-api-redirect/i.test(source.domain + source.url)) {
+      return `${source.domain}:${source.url}`;
+    }
+    return source.domain;
+  })).size >= 2;
 }
 
-function paragraphIndexFor(segment: ReviewSegment, originalText: string): number {
-  return segment.paragraphs.find(paragraph => paragraph.text.includes(originalText))?.index
-    ?? segment.paragraphs[0]?.index
-    ?? 0;
+export function normalizeReviewText(value: string): string {
+  return value
+    .normalize('NFKC')
+    .replace(/[\u00a0\u2007\u202f]/g, ' ')
+    .replace(/[“”„]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .trim()
+    .toLocaleLowerCase();
+}
+
+function compactReviewText(value: string): string {
+  return normalizeReviewText(value).replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+function anchorMatches(paragraphText: string, proposedText: string): boolean {
+  const paragraph = normalizeReviewText(paragraphText);
+  const proposed = normalizeReviewText(proposedText);
+  if (!paragraph || !proposed) return false;
+  if (paragraph === proposed) return true;
+
+  const compactParagraph = compactReviewText(paragraph);
+  const compactProposed = compactReviewText(proposed);
+  if (compactProposed.length < 24) return false;
+
+  return compactParagraph.includes(compactProposed)
+    || (compactParagraph.length >= 24 && compactProposed.includes(compactParagraph));
+}
+
+export function resolveReviewAnchor(
+  segment: ReviewSegment,
+  proposedText: unknown,
+  proposedParagraphIndex: unknown
+): { text: string; index: number } | undefined {
+  const originalText = typeof proposedText === 'string' ? proposedText.trim() : '';
+  if (originalText.length < 30) return undefined;
+
+  const numericIndex = Number(proposedParagraphIndex);
+  if (Number.isInteger(numericIndex)) {
+    const indexed = segment.paragraphs.find(paragraph => paragraph.index === numericIndex);
+    if (indexed && anchorMatches(indexed.text, originalText)) return indexed;
+  }
+
+  const matches = segment.paragraphs.filter(paragraph => anchorMatches(paragraph.text, originalText));
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 export async function reviewDocumentCurrentness(
@@ -201,6 +252,14 @@ export async function reviewDocumentCurrentness(
       continue;
     }
 
+    const sourceDomains = Array.from(new Set(research.sources.map(source => source.domain)));
+    await options.onLog?.(
+      `Bloco ${index + 1}: ${research.sources.length} fonte(s), ${sourceDomains.length} domínio(s) e ${research.queries.length} consulta(s).`
+    );
+    const indexedParagraphs = segment.paragraphs
+      .map(paragraph => `[P${paragraph.index}] ${paragraph.text}`)
+      .join('\n\n');
+
     const prompt = `Analise o texto original usando exclusivamente a síntese e as fontes realmente devolvidas pela pesquisa web.
 
 OBJETIVO
@@ -212,7 +271,8 @@ CRITÉRIOS
 - "new_evidence": a passagem continua parcialmente correta, mas evidência posterior importante muda a conclusão ou exige complemento.
 - "uncertain": há sinal relevante, mas evidência insuficiente ou conflitante; não proponha texto substituto.
 - Para outdated, contradicted ou new_evidence, exija uma fonte oficial conclusiva ou duas fontes independentes.
-- O trecho original deve ser copiado de forma exata e ter pelo menos 30 caracteres.
+- Informe o paragraphIndex exibido em [P123]. Copie o parágrafo original completo e de forma exata, com pelo menos 30 caracteres.
+- suggestedText deve ser a versão integral do mesmo parágrafo, já atualizada; não devolva somente a frase alterada.
 - Cada conclusão deve citar apenas IDs da lista abaixo.
 - Retorne no máximo 6 achados de maior importância neste bloco.
 
@@ -224,13 +284,14 @@ ${formatResearchEvidence(research.sources)}
 
 TEXTO ORIGINAL
 ---
-${segment.text}
+${indexedParagraphs}
 ---
 
 Retorne apenas JSON válido:
 {
   "findings": [
     {
+      "paragraphIndex": 123,
       "originalText": "trecho exato do texto",
       "suggestedText": "redação factual atualizada; vazio quando uncertain",
       "reason": "explicação objetiva da mudança e da evidência",
@@ -252,27 +313,58 @@ Retorne apenas JSON válido:
         prompt,
         maxTokens: 12_000
       });
-      parsed = JSON.parse(json);
+      const structured = parseStructuredJsonResponse(json);
+      parsed = structured.value;
+      if (structured.recovered) {
+        await options.onLog?.(`JSON do bloco ${index + 1} recuperado após conteúdo extra.`);
+      }
     } catch (error: any) {
       await options.onLog?.(
         `Não foi possível sintetizar o bloco ${index + 1}: ${error.message || String(error)}`
       );
     }
 
-    for (const raw of Array.isArray(parsed.findings) ? parsed.findings : []) {
-      const originalText = typeof raw.originalText === 'string' ? raw.originalText.trim() : '';
+    const candidates = Array.isArray(parsed?.findings) ? parsed.findings : [];
+    const rejected = {
+      verdict: 0,
+      anchor: 0,
+      evidence: 0,
+      suggestion: 0
+    };
+    let accepted = 0;
+
+    for (const raw of candidates) {
       const verdict = normalizeVerdict(raw.verdict);
+      if (!verdict) {
+        rejected.verdict++;
+        continue;
+      }
+
+      const anchor = resolveReviewAnchor(segment, raw.originalText, raw.paragraphIndex);
+      if (!anchor) {
+        rejected.anchor++;
+        continue;
+      }
+
       const sourceIds = Array.isArray(raw.sourceIds)
         ? raw.sourceIds.filter((id: unknown): id is string =>
             typeof id === 'string' && research.sources.some(source => source.id === id)
           )
         : [];
       const evidence = research.sources.filter(source => sourceIds.includes(source.id));
-      const suggestedText = typeof raw.suggestedText === 'string' ? raw.suggestedText.trim() : '';
+      if (!hasEnoughEvidence(verdict, evidence)) {
+        rejected.evidence++;
+        continue;
+      }
 
-      if (!verdict || originalText.length < 30 || !segment.text.includes(originalText)) continue;
-      if (!hasEnoughEvidence(verdict, evidence)) continue;
-      if (verdict !== 'uncertain' && (!suggestedText || suggestedText === originalText)) continue;
+      const suggestedText = typeof raw.suggestedText === 'string' ? raw.suggestedText.trim() : '';
+      if (
+        verdict !== 'uncertain'
+        && (!suggestedText || normalizeReviewText(suggestedText) === normalizeReviewText(anchor.text))
+      ) {
+        rejected.suggestion++;
+        continue;
+      }
 
       const category = normalizeCategory(raw.category);
       const confidenceNumber = Number(raw.confidence);
@@ -284,9 +376,9 @@ Retorne apenas JSON válido:
         id: randomUUID(),
         type: category === 'legal' ? 'regulamento' : 'outro',
         number: category,
-        fullText: originalText,
+        fullText: anchor.text,
         context: segment.title,
-        paragraphIndex: paragraphIndexFor(segment, originalText),
+        paragraphIndex: anchor.index,
         chapterTitle: segment.title,
         status: verdictStatus(verdict),
         updateDescription: typeof raw.reason === 'string' ? raw.reason.trim() : '',
@@ -300,7 +392,13 @@ Retorne apenas JSON válido:
         category,
         verdict
       });
+      accepted++;
     }
+
+    await options.onLog?.(
+      `Bloco ${index + 1}: ${candidates.length} candidato(s), ${accepted} aceito(s); descartes — `
+      + `veredito ${rejected.verdict}, âncora ${rejected.anchor}, evidência ${rejected.evidence}, sugestão ${rejected.suggestion}.`
+    );
 
     await options.onProgress?.(index + 1, segments.length);
   }

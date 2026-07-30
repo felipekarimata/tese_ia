@@ -4,6 +4,64 @@ import OpenAI from 'openai';
 import type { AIProvider } from '../types';
 import { isOpenAIGpt5Family, openaiCompletionTokenLimit } from '../openai-compat';
 
+export type ParsedStructuredJson = {
+  value: unknown;
+  recovered: boolean;
+};
+
+function firstBalancedJsonValue(raw: string): string | undefined {
+  const start = raw.search(/[\[{]/);
+  if (start < 0) return undefined;
+
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < raw.length; index++) {
+    const char = raw[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{' || char === '[') stack.push(char);
+    else if (char === '}' || char === ']') {
+      const opening = stack.pop();
+      if ((char === '}' && opening !== '{') || (char === ']' && opening !== '[')) return undefined;
+      if (stack.length === 0) return raw.slice(start, index + 1);
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Providers occasionally append commentary or a second JSON value despite
+ * structured-output mode. Preserve the first complete JSON value instead of
+ * losing the entire review block.
+ */
+export function parseStructuredJsonResponse(raw: string): ParsedStructuredJson {
+  const trimmed = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  try {
+    return { value: JSON.parse(trimmed), recovered: false };
+  } catch (originalError) {
+    const candidate = firstBalancedJsonValue(trimmed);
+    if (!candidate) throw originalError;
+    return { value: JSON.parse(candidate), recovered: candidate.length !== trimmed.length };
+  }
+}
+
 export async function generateStructuredJson(params: {
   provider: AIProvider;
   model: string;

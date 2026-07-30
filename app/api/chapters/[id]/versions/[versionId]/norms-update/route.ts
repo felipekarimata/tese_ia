@@ -13,6 +13,7 @@ import { getProviderApiKey } from '@/lib/ai/api-keys';
 import { DEFAULT_MODELS } from '@/lib/ai/model-registry';
 import type { AIProvider } from '@/lib/ai/types';
 import { reviewDocumentCurrentness, type ReviewScope } from '@/lib/currentness-review';
+import { extractCurrentnessDocument } from '@/lib/currentness-document';
 import type { ResearchDepth } from '@/lib/ai/research';
 
 /**
@@ -167,7 +168,9 @@ async function processNormsUpdate(
         : 'Início da análise de normas (capítulo)'
     );
     await appendNormJobLog(jobId, 'Extraindo estrutura do documento…');
-    const { structure, paragraphs } = await extractDocumentStructure(tempFilePath);
+    const { structure, paragraphs } = reviewScope === 'currentness'
+      ? await extractCurrentnessDocument(tempFilePath)
+      : await extractDocumentStructure(tempFilePath);
 
     if (reviewScope === 'currentness') {
       const findings = await reviewDocumentCurrentness({

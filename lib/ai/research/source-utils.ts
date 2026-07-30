@@ -5,7 +5,7 @@ type SourceInput = Partial<Omit<ResearchSource, 'id' | 'domain' | 'sourceType'>>
   title?: unknown;
 };
 
-const OFFICIAL_DOMAINS = /(^|\.)(gov|jus|leg|edu)\.br$|(^|\.)(planalto|senado|camara|lexml|inmetro|abnt|iso)\./i;
+const OFFICIAL_DOMAINS = /(^|\.)(gov|jus|leg|edu)\.br$|(^|\.)(gov|gouv)\.[a-z]{2,3}$|(^|\.)go\.[a-z]{2}$|(^|\.)(planalto|senado|camara|lexml|inmetro|abnt|iso)\.|(^|\.)(europa\.eu|oecd\.org|worldbank\.org|imf\.org|un\.org|fatf-gafi\.org)$/i;
 const ACADEMIC_DOMAINS = /(^|\.)(doi\.org|scielo\.|scopus\.|pubmed\.|ncbi\.|semanticscholar\.|arxiv\.|researchgate\.)/i;
 const NEWS_DOMAINS = /(^|\.)(reuters|apnews|bbc|cnn|folha|estadao|globo)\./i;
 
@@ -22,7 +22,7 @@ export function normalizeHttpUrl(value: unknown): string | undefined {
 }
 
 export function classifySource(domain: string): ResearchSourceType {
-  if (OFFICIAL_DOMAINS.test(domain)) return 'official';
+  if (OFFICIAL_DOMAINS.test(domain) || domain.endsWith('.int')) return 'official';
   if (ACADEMIC_DOMAINS.test(domain)) return 'academic';
   if (NEWS_DOMAINS.test(domain)) return 'news';
   if (/journal|revista|periodic/i.test(domain)) return 'journal';

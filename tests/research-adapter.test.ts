@@ -5,9 +5,15 @@ import {
   normalizeSources,
   parseAnthropicResearchContent,
   parseGeminiGrounding,
-  parseResponsesApi
+  parseResponsesApi,
+  parseStructuredJsonResponse
 } from '../lib/ai/research/index';
-import { buildReviewSegments } from '../lib/currentness-review';
+import {
+  buildReviewSegments,
+  hasEnoughEvidence,
+  resolveReviewAnchor
+} from '../lib/currentness-review';
+import { parseMammothReviewHtml } from '../lib/currentness-document';
 
 test('normaliza, deduplica e rejeita URLs não HTTP', () => {
   assert.equal(normalizeHttpUrl('javascript:alert(1)'), undefined);
@@ -107,4 +113,83 @@ test('divide o documento para /revisar preservando índices e secções', () => 
   assert.deepEqual(segments[0].paragraphs.map(paragraph => paragraph.index), [1, 2]);
   assert.deepEqual(segments[1].paragraphs.map(paragraph => paragraph.index), [4]);
   assert.ok(!segments.some(segment => segment.text.includes('Capítulo 1')));
+});
+
+test('extrai texto fiel e infere títulos numerados sem estilo do Word', () => {
+  const parsed = parseMammothReviewHtml([
+    '<h2>6. OS CENTROS OFFSHORE</h2>',
+    '<p>Com base no sistema de <em>common law</em>, as regras precisam de revisão.</p>',
+    '<p>6.1.1. Andorra<sup><a href="#nota">[1]</a></sup></p>',
+    '<p>Atualmente, as empresas são tributadas a uma taxa geral de 10%.</p>',
+    '<p>6.1.2.Chipre</p>',
+    '<p>O PIB real cresceu 3,1% em 2022.</p>',
+    '<ol><li id="footnote-1"><p>Nota bibliográfica duplicada.</p></li></ol>'
+  ].join(''));
+
+  assert.deepEqual(parsed.paragraphs.map(paragraph => paragraph.text), [
+    '6. OS CENTROS OFFSHORE',
+    'Com base no sistema de common law, as regras precisam de revisão.',
+    '6.1.1. Andorra[1]',
+    'Atualmente, as empresas são tributadas a uma taxa geral de 10%.',
+    '6.1.2.Chipre',
+    'O PIB real cresceu 3,1% em 2022.'
+  ]);
+  assert.deepEqual(parsed.structure.sections.map(section => section.title), [
+    '6. OS CENTROS OFFSHORE',
+    '6.1.1. Andorra[1]',
+    '6.1.2.Chipre'
+  ]);
+});
+
+test('ancora achado pelo índice mesmo com diferenças inocentes de espaços e pontuação', () => {
+  const segment = {
+    title: 'Malta',
+    text: 'Em termos econômicos, Malta mantém uma economia estável.',
+    paragraphs: [{
+      index: 104,
+      text: 'Em termos econômicos, Malta mantém uma economia estável.'
+    }]
+  };
+
+  const anchor = resolveReviewAnchor(
+    segment,
+    'Em termos econômicos ,  Malta mantém uma economia estável.',
+    104
+  );
+  assert.deepEqual(anchor, segment.paragraphs[0]);
+});
+
+test('recupera o primeiro JSON completo quando o modelo acrescenta conteúdo', () => {
+  const parsed = parseStructuredJsonResponse(
+    '{"findings":[{"paragraphIndex":104}]}\n{"comentario":"extra"}'
+  );
+  assert.equal(parsed.recovered, true);
+  assert.deepEqual(parsed.value, { findings: [{ paragraphIndex: 104 }] });
+});
+
+test('classifica organizações intergovernamentais como fontes oficiais', () => {
+  const sources = normalizeSources([
+    { title: 'OECD', url: 'https://www.oecd.org/tax/report' },
+    { title: 'European Commission', url: 'https://taxation-customs.ec.europa.eu/report' }
+  ]);
+  assert.deepEqual(sources.map(source => source.sourceType), ['official', 'official']);
+});
+
+test('não colapsa fontes independentes atrás dos redirects de grounding do Gemini', () => {
+  assert.equal(hasEnoughEvidence('outdated', [
+    {
+      id: 'S1',
+      title: 'Fonte A',
+      url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/a',
+      domain: 'vertexaisearch.cloud.google.com',
+      sourceType: 'web'
+    },
+    {
+      id: 'S2',
+      title: 'Fonte B',
+      url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/b',
+      domain: 'vertexaisearch.cloud.google.com',
+      sourceType: 'web'
+    }
+  ]), true);
 });
