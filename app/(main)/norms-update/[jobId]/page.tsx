@@ -253,10 +253,16 @@ export default function NormUpdatePage() {
         const data = await res.json();
         if (data.chapterId && data.newVersionId) {
           toast.dismiss();
+          const appliedSuggestions = data.applicationSummary?.appliedSuggestions;
+          const changedParagraphs = data.applicationSummary?.changedParagraphs;
+          const countMessage = typeof appliedSuggestions === 'number' && typeof changedParagraphs === 'number'
+            ? ` ${appliedSuggestions} ${appliedSuggestions === 1 ? 'sugestão aplicada' : 'sugestões aplicadas'} em ${changedParagraphs} ${changedParagraphs === 1 ? 'parágrafo' : 'parágrafos'}.`
+            : '';
           toast.success(
-            isCurrentness
+            (isCurrentness
               ? 'Atualizações aplicadas! Nova versão do capítulo criada.'
-              : 'Normas aplicadas! Nova versão do capítulo criada.'
+              : 'Normas aplicadas! Nova versão do capítulo criada.')
+            + countMessage
           );
           router.push(`/chapters/${data.chapterId}/versions/${data.newVersionId}`);
           return;
