@@ -55,7 +55,19 @@ export const BOOK_COMMANDS: readonly BookCommandDefinition[] = [
   },
 ] as const;
 
+export const CHAPTER_UTILITY_COMMANDS = [
+  {
+    name: '/comparar',
+    args: '[versão 1] [versão 2]',
+    example: '/comparar original atual',
+    description: 'Abre duas versões lado a lado no agente de capítulos.',
+  },
+] as const;
+
+export type ChapterUtilityCommandName = (typeof CHAPTER_UTILITY_COMMANDS)[number]['name'];
+
 const BOOK_COMMAND_SET = new Set<string>(BOOK_COMMAND_NAMES);
+const CHAPTER_UTILITY_COMMAND_SET = new Set<string>(CHAPTER_UTILITY_COMMANDS.map((command) => command.name));
 
 export function getSlashCommandName(input: string): string | null {
   const trimmed = input.trim();
@@ -66,6 +78,10 @@ export function getSlashCommandName(input: string): string | null {
 
 export function isBookCommand(command: string): command is BookCommandName {
   return BOOK_COMMAND_SET.has(command.toLowerCase());
+}
+
+export function isChapterUtilityCommand(command: string): command is ChapterUtilityCommandName {
+  return CHAPTER_UTILITY_COMMAND_SET.has(command.toLowerCase());
 }
 
 export function disabledCommandMessage(command: string): string {

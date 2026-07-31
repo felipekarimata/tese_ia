@@ -38,9 +38,11 @@ import type { Multi3Session } from '@/lib/multi-ai/types';
 import { ChapterDocumentEditor } from '@/components/document/chapter-document-editor';
 import {
   BOOK_COMMANDS as BOOK_COMMAND_DEFINITIONS,
+  CHAPTER_UTILITY_COMMANDS,
   disabledCommandMessage,
   getSlashCommandName,
   isBookCommand,
+  isChapterUtilityCommand,
   type BookCommandName,
 } from '@/lib/book-workflow/commands';
 import {
@@ -144,11 +146,18 @@ const COMMAND_COLORS: Record<BookCommandName, string> = {
   '/livro': 'text-red-400',
 };
 
-const COMMANDS: SlashCommand[] = BOOK_COMMAND_DEFINITIONS.map((command) => ({
-  ...command,
-  icon: COMMAND_ICONS[command.name],
-  color: COMMAND_COLORS[command.name],
-}));
+const COMMANDS: SlashCommand[] = [
+  ...BOOK_COMMAND_DEFINITIONS.map((command) => ({
+    ...command,
+    icon: COMMAND_ICONS[command.name],
+    color: COMMAND_COLORS[command.name],
+  })),
+  ...CHAPTER_UTILITY_COMMANDS.map((command) => ({
+    ...command,
+    icon: <ArrowLeftRight className="h-4 w-4" />,
+    color: 'text-cyan-400',
+  })),
+];
 
 const LANGUAGE_MAP: Record<string, string> = {
   'português': 'pt', 'portugues': 'pt', 'pt': 'pt',
@@ -1125,7 +1134,7 @@ export default function AgentModePage() {
     if (!trimmed) return;
 
     const submittedCommand = getSlashCommandName(trimmed);
-    if (submittedCommand && !isBookCommand(submittedCommand)) {
+    if (submittedCommand && !isBookCommand(submittedCommand) && !isChapterUtilityCommand(submittedCommand)) {
       appendMessage({ role: 'user', content: trimmed });
       setInput('');
       appendMessage({ role: 'system', content: disabledCommandMessage(submittedCommand), status: 'error' });

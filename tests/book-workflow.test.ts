@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { completeBookWorkflowStep, createBookWorkflowState, parseBookWorkflowAction } from '../lib/book-workflow/state';
-import { getSlashCommandName, isBookCommand } from '../lib/book-workflow/commands';
+import { getSlashCommandName, isBookCommand, isChapterUtilityCommand } from '../lib/book-workflow/commands';
 import { sanitizeEditorialText } from '../lib/book-workflow/output';
 
 test('only the six editorial slash commands are active', () => {
@@ -9,6 +9,8 @@ test('only the six editorial slash commands are active', () => {
   assert.equal(isBookCommand('/aprimorar'), true);
   assert.equal(isBookCommand('/todos'), false);
   assert.equal(isBookCommand('/3'), false);
+  assert.equal(isBookCommand('/comparar'), false);
+  assert.equal(isChapterUtilityCommand('/comparar'), true);
   assert.equal(getSlashCommandName('/ajustar algo'), '/ajustar');
 });
 

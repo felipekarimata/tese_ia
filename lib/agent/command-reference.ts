@@ -1,5 +1,5 @@
 import type { SkillsSettings } from '@/lib/skills/types';
-import { BOOK_COMMANDS } from '@/lib/book-workflow/commands';
+import { BOOK_COMMANDS, CHAPTER_UTILITY_COMMANDS } from '@/lib/book-workflow/commands';
 
 export type CommandExample = {
   cmd: string;
@@ -35,6 +35,15 @@ const BASE_CATALOG: CommandCategory[] = [
     title: 'Tese → livro',
     description: 'Cinco etapas editoriais com revisão humana entre cada saída.',
     examples: BOOK_COMMANDS.map((command) => ({
+      cmd: command.example,
+      desc: command.description,
+    })),
+  },
+  {
+    id: 'chapter-version-tools',
+    title: 'Versões do capítulo',
+    description: 'Ferramentas visuais disponíveis no agente de capítulos.',
+    examples: CHAPTER_UTILITY_COMMANDS.map((command) => ({
       cmd: command.example,
       desc: command.description,
     })),
