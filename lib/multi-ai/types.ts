@@ -31,6 +31,14 @@ export type Multi3Candidate = {
   branchIndex?: number;
   progress?: number;
   progressLabel?: string;
+  /** Stored inside the candidates JSON for backwards-compatible session persistence. */
+  judgeModel?: string;
+};
+
+export type Multi3Settings = {
+  defaultProviders: AIProvider[];
+  defaultModels: Partial<Record<AIProvider, string>>;
+  judgeProvider: AIProvider;
 };
 
 export type Multi3Session = {
@@ -41,6 +49,7 @@ export type Multi3Session = {
   commandArgs: string;
   providers: AIProvider[];
   judgeProvider: AIProvider;
+  judgeModel?: string;
   status: Multi3SessionStatus;
   candidates: Multi3Candidate[];
   winnerProvider?: AIProvider;

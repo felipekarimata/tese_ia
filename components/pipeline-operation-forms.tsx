@@ -55,7 +55,7 @@ export function getDefaultModel(provider: string): string {
       ? 'gemini-3.5-flash'
       : provider === 'anthropic'
         ? 'claude-fable-5'
-        : 'gpt-5.6')
+        : 'gpt-5.6-terra')
   );
 }
 

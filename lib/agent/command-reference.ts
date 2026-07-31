@@ -14,16 +14,17 @@ export type CommandCategory = {
 };
 
 export const MULTI3_SHORT_DESCRIPTION =
-  'Compare respostas de vários modelos em paralelo (/3 ou /todos /3).';
+  'Use /3 antes ou depois de um comando para comparar vários modelos em paralelo.';
 
 export const MULTI3_PROVIDER_HINT =
-  'Opcional: /3 openai,gemini,grok ou /3 escolher gemini após comparar.';
+  'Sem nomes, usa os padrões de Configurações. Nomes explícitos substituem os padrões.';
 
 export const MULTI3_COMMAND_EXAMPLES: CommandExample[] = [
-  { cmd: '/3 gemini openai claude /ajustar expandir conclusão', desc: 'Comparar 3 modelos num ajuste' },
-  { cmd: '/3 /ajustar expandir conclusão', desc: 'Multi-IA com ajuste (provedores padrão)' },
-  { cmd: '/3 /perguntar qual o tema deste capítulo', desc: 'Pergunta com vários modelos' },
-  { cmd: '/todos /3 gemini openai claude', desc: 'Pipeline completo com Multi-IA' },
+  { cmd: '/revisar /3', desc: 'Revisar com os provedores e modelos padrão' },
+  { cmd: '/ajustar expandir conclusão /3', desc: 'Aplicar /3 depois do comando' },
+  { cmd: '/3 /perguntar qual o tema deste capítulo', desc: 'Aplicar /3 antes do comando' },
+  { cmd: '/todos /3', desc: 'Pipeline completo com os padrões Multi-IA' },
+  { cmd: '/revisar /3 gemini openai', desc: 'Substituir os provedores padrão' },
   { cmd: '/3 escolher gemini', desc: 'Aceitar candidato após comparar' },
   { cmd: '/3 decidir openai', desc: 'Re-juizar com outro modelo' },
 ];

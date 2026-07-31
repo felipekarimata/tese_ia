@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test:research": "tsx --test tests/research-adapter.test.ts",
-    "test:review": "tsx --test tests/apply-docx.test.ts tests/version-diff.test.ts"
+    "test:review": "tsx --test tests/apply-docx.test.ts tests/version-diff.test.ts",
+    "test:multi3": "tsx --test tests/multi3-config.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

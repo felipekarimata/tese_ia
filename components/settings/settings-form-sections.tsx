@@ -4,12 +4,15 @@ import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   DOCUMENT_SEND_MODE_LABELS,
   type DocumentSendMode,
 } from '@/lib/document-processing/mode';
 import type { AIProviderKey, AppSettings } from './use-settings-form';
 import { cn } from '@/lib/utils';
+import type { Multi3Settings } from '@/lib/multi-ai/types';
+import { MULTI3_PROVIDERS, normalizeMulti3Settings } from '@/lib/multi-ai/models';
 
 const PROVIDER_LABELS: Record<AIProviderKey, string> = {
   openai: 'OpenAI',
@@ -250,6 +253,120 @@ export function ModelsSection(props: ModelsSectionProps) {
       {providers.map((provider) => (
         <ProviderModelsBlock key={provider} provider={provider} {...props} />
       ))}
+    </div>
+  );
+}
+
+type Multi3DefaultsSectionProps = SectionProps & {
+  settings: AppSettings | null;
+  updateMulti3: (patch: Partial<Multi3Settings>) => void;
+};
+
+export function Multi3DefaultsSection({
+  settings,
+  updateMulti3,
+  compact = false,
+  idPrefix = '',
+}: Multi3DefaultsSectionProps) {
+  const config = normalizeMulti3Settings(settings?.multi3, settings?.models);
+
+  const toggleProvider = (provider: AIProviderKey) => {
+    const selected = config.defaultProviders.includes(provider);
+    if (selected && config.defaultProviders.length <= 2) return;
+    updateMulti3({
+      defaultProviders: selected
+        ? config.defaultProviders.filter((item) => item !== provider)
+        : [...config.defaultProviders, provider],
+    });
+  };
+
+  return (
+    <div className={cn('space-y-4', compact && 'space-y-3')}>
+      <div>
+        <p className={cn('font-semibold text-white', compact ? 'text-sm' : 'text-base')}>
+          Padroes do Multi-IA `/3`
+        </p>
+        <p className="text-xs text-gray-500 mt-1">
+          Usados por `/3`, `/revisar /3` e `/todos /3` quando o comando nao informa provedores.
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {MULTI3_PROVIDERS.map((provider) => {
+          const enabledModels = settings?.models?.[provider] ?? [];
+          const currentModel = config.defaultModels[provider] || '';
+          const modelOptions = Array.from(new Set([
+            ...(currentModel ? [currentModel] : []),
+            ...enabledModels,
+          ]));
+          const selected = config.defaultProviders.includes(provider);
+          const cannotRemove = selected && config.defaultProviders.length <= 2;
+
+          return (
+            <div key={provider} className="rounded-lg border border-white/10 p-3 space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-white cursor-pointer">
+                <input
+                  id={`${idPrefix}multi3-provider-${provider}`}
+                  type="checkbox"
+                  checked={selected}
+                  disabled={cannotRemove}
+                  onChange={() => toggleProvider(provider)}
+                  className="rounded"
+                />
+                {PROVIDER_LABELS[provider]}
+                {config.judgeProvider === provider && (
+                  <span className="text-[10px] text-yellow-400">juiz</span>
+                )}
+              </label>
+              <Select
+                value={currentModel}
+                onValueChange={(model) => updateMulti3({
+                  defaultModels: { ...config.defaultModels, [provider]: model },
+                })}
+              >
+                <SelectTrigger className="h-8 text-xs bg-white/5 border-white/10">
+                  <SelectValue placeholder="Selecione o modelo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {modelOptions.map((model) => (
+                    <SelectItem key={model} value={model}>{model}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {enabledModels.length === 0 && (
+                <p className="text-[10px] text-amber-400/80">
+                  Nenhum modelo habilitado; sera usado o fallback {currentModel}.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="space-y-1.5 max-w-sm">
+        <Label className="text-xs text-gray-400">Provedor juiz</Label>
+        <Select
+          value={config.judgeProvider}
+          onValueChange={(provider) => updateMulti3({ judgeProvider: provider as AIProviderKey })}
+        >
+          <SelectTrigger className="h-9 bg-white/5 border-white/10">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {MULTI3_PROVIDERS.map((provider) => (
+              <SelectItem key={provider} value={provider}>
+                {PROVIDER_LABELS[provider]} - {config.defaultModels[provider]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <p className="text-xs text-gray-500">
+        Comando padrao: {config.defaultProviders
+          .map((provider) => `${provider}/${config.defaultModels[provider]}`)
+          .join(' | ')}. Juiz: {config.judgeProvider}/{config.defaultModels[config.judgeProvider]}.
+      </p>
     </div>
   );
 }

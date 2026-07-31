@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Save, CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
 import { getAIErrorMessage } from '@/lib/ai-error-message';
-import { DocumentProcessingSection, ModelsSection } from '@/components/settings/settings-form-sections';
+import { DocumentProcessingSection, ModelsSection, Multi3DefaultsSection } from '@/components/settings/settings-form-sections';
 import { SkillsSection } from '@/components/settings/skills-section';
 import { useSettingsForm, type PendingKeyUpdates } from '@/components/settings/use-settings-form';
 import { dispatchSettingsUpdated } from '@/components/settings/events';
@@ -66,6 +66,7 @@ export default function SettingsPage() {
     setSkillOverride,
     clearSkillOverride,
     updateSkills,
+    updateMulti3,
   } = useSettingsForm();
 
   useEffect(() => {
@@ -197,6 +198,18 @@ export default function SettingsPage() {
               </div>
             );
           })}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Multi-IA `/3`</CardTitle>
+          <CardDescription>
+            Defina os provedores, modelos e juiz usados quando o comando nao especificar escolhas.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Multi3DefaultsSection settings={settings} updateMulti3={updateMulti3} />
         </CardContent>
       </Card>
 

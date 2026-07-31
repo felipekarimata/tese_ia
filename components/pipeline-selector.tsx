@@ -464,13 +464,13 @@ function FlowArrow() {
 function getDefaultConfig(op: PipelineOperation): any {
   switch (op) {
     case 'adjust':
-      return { instructions: '', creativity: 5, provider: 'openai', model: 'gpt-5.6' };
+      return { instructions: '', creativity: 5, provider: 'openai', model: 'gpt-5.6-terra' };
     case 'update':
       return { provider: 'gemini', model: 'gemini-3.5-flash' };
     case 'improve':
-      return { provider: 'openai', model: 'gpt-5.6' };
+      return { provider: 'openai', model: 'gpt-5.6-terra' };
     case 'adapt':
-      return { style: 'simplified', provider: 'openai', model: 'gpt-5.6' };
+      return { style: 'simplified', provider: 'openai', model: 'gpt-5.6-terra' };
     case 'translate':
       return {
         sourceLanguage: 'auto',

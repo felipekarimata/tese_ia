@@ -72,7 +72,9 @@ export async function startChapterMulti3(
   chapterId: string,
   req: Multi3StartRequest
 ): Promise<Multi3Session> {
-  const models = sanitizeMulti3Models(req.providers, req.models || {});
+  const judgeProvider = req.judgeProvider || DEFAULT_JUDGE_PROVIDER;
+  const modelProviders = Array.from(new Set([...req.providers, judgeProvider]));
+  const models = sanitizeMulti3Models(modelProviders, req.models || {});
 
   const session = await createMulti3Session('chapter', chapterId, { ...req, models });
   return session;
@@ -115,9 +117,12 @@ export async function executeChapterMulti3Session(
     command: session.command,
     args: session.commandArgs,
     versionId: session.parentVersionId || '',
-    models: Object.fromEntries(
+    models: {
+      ...Object.fromEntries(
       session.candidates.map((c) => [c.provider, c.model])
-    ) as Partial<Record<AIProvider, string>>,
+      ),
+      [session.judgeProvider]: session.judgeModel || multi3DefaultModel(session.judgeProvider),
+    } as Partial<Record<AIProvider, string>>,
   };
 
   if (!req.versionId) {
@@ -755,6 +760,7 @@ export async function rejudgeMulti3Session(
 
   await updateMulti3Session(sessionId, {
     judgeProvider,
+    candidates: session.candidates.map((candidate) => ({ ...candidate, judgeModel: model })),
     winnerProvider: winner.provider,
     winnerVersionId: winner.versionId,
     judgeReasoning: judgeResult.reasoning,

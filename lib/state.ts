@@ -4,6 +4,8 @@ import type { Thesis, Chapter, ChapterVersion, ChapterChunk } from './thesis/typ
 import type { SkillsSettings } from './skills/types';
 import { DEFAULT_SKILLS_SETTINGS } from './skills/types';
 import { RECOMMENDED_MODELS } from './ai/model-registry';
+import type { Multi3Settings } from './multi-ai/types';
+import { DEFAULT_MULTI3_SETTINGS, normalizeMulti3Settings } from './multi-ai/models';
 
 export type Chunk = {
   ix: number;
@@ -90,6 +92,7 @@ export type Settings = {
     grok: string[];
     anthropic: string[];
   };
+  multi3: Multi3Settings;
   documentProcessing?: DocumentProcessingSettings;
   skills?: SkillsSettings;
   pricesUSD: {
@@ -114,6 +117,7 @@ export function toPublicSettings(settings: Settings): PublicSettings {
   const { openaiKey, googleKey, xaiKey, anthropicKey, ...rest } = settings;
   return {
     ...rest,
+    multi3: normalizeMulti3Settings(settings.multi3, settings.models),
     hasOpenaiKey: Boolean(openaiKey),
     hasGoogleKey: Boolean(googleKey),
     hasXaiKey: Boolean(xaiKey),
@@ -158,6 +162,11 @@ export const state: {
       grok: [...RECOMMENDED_MODELS.grok],
       anthropic: [...RECOMMENDED_MODELS.anthropic]
     },
+    multi3: {
+      defaultProviders: [...DEFAULT_MULTI3_SETTINGS.defaultProviders],
+      defaultModels: { ...DEFAULT_MULTI3_SETTINGS.defaultModels },
+      judgeProvider: DEFAULT_MULTI3_SETTINGS.judgeProvider,
+    },
     documentProcessing: {
       mode: 'auto',
       maxWholeDocumentChars: 96000,
@@ -166,7 +175,7 @@ export const state: {
     },
     skills: { ...DEFAULT_SKILLS_SETTINGS },
     pricesUSD: {
-      "gpt-5.6": { in: 0.005, out: 0.03 },
+      "gpt-5.6-terra": { in: 0.005, out: 0.03 },
       "gpt-5.6-sol": { in: 0.005, out: 0.03 },
       "grok-4.5": { in: 0.002, out: 0.006 },
       "claude-fable-5": { in: 0.01, out: 0.05 },

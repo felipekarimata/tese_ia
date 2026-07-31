@@ -2,6 +2,8 @@ import { parseMulti3Input, ParsedMulti3Command, explainMulti3ParseFailure } from
 import { Multi3Command } from '@/lib/multi-ai/types';
 import { AIProvider } from '@/lib/ai/types';
 import { formatMulti3ProgressLine, getMulti3FailureMessage } from '@/lib/multi-ai/errors';
+import { normalizeMulti3Settings } from '@/lib/multi-ai/models';
+import type { Multi3Settings } from '@/lib/multi-ai/types';
 
 export type Multi3LaunchParams = {
   providers: AIProvider[];
@@ -10,8 +12,18 @@ export type Multi3LaunchParams = {
   args: string;
 };
 
-export function parseMulti3Command(raw: string): ParsedMulti3Command {
-  return parseMulti3Input(raw);
+export function parseMulti3Command(
+  raw: string,
+  settings?: {
+    models?: Partial<Record<AIProvider, string[]>>;
+    multi3?: Partial<Multi3Settings>;
+  } | null
+): ParsedMulti3Command {
+  const multi3 = normalizeMulti3Settings(settings?.multi3, settings?.models);
+  return parseMulti3Input(raw, {
+    providers: multi3.defaultProviders,
+    judgeProvider: multi3.judgeProvider,
+  });
 }
 
 export { explainMulti3ParseFailure };

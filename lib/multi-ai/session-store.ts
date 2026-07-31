@@ -12,6 +12,8 @@ import { randomUUID } from 'crypto';
 import { multi3DefaultModel } from './models';
 
 function rowToSession(row: Record<string, unknown>): Multi3Session {
+  const candidates = (row.candidates as Multi3Candidate[]) || [];
+  const judgeProvider = (row.judge_provider as AIProvider) || DEFAULT_JUDGE_PROVIDER;
   return {
     id: row.id as string,
     targetType: row.target_type as 'chapter' | 'document',
@@ -19,9 +21,13 @@ function rowToSession(row: Record<string, unknown>): Multi3Session {
     command: row.command as Multi3Command,
     commandArgs: (row.command_args as string) || '',
     providers: row.providers as AIProvider[],
-    judgeProvider: (row.judge_provider as AIProvider) || DEFAULT_JUDGE_PROVIDER,
+    judgeProvider,
+    judgeModel:
+      candidates.find((candidate) => candidate.judgeModel)?.judgeModel ||
+      candidates.find((candidate) => candidate.provider === judgeProvider)?.model ||
+      defaultModel(judgeProvider),
     status: row.status as Multi3SessionStatus,
-    candidates: (row.candidates as Multi3Candidate[]) || [],
+    candidates,
     winnerProvider: row.winner_provider as AIProvider | undefined,
     winnerVersionId: row.winner_version_id as string | undefined,
     judgeReasoning: row.judge_reasoning as string | undefined,
@@ -38,12 +44,15 @@ export async function createMulti3Session(
   req: Multi3StartRequest
 ): Promise<Multi3Session> {
   const id = randomUUID();
+  const judgeProvider = req.judgeProvider || DEFAULT_JUDGE_PROVIDER;
+  const judgeModel = req.models?.[judgeProvider] || defaultModel(judgeProvider);
   const candidates: Multi3Candidate[] = req.providers.map((provider, branchIndex) => ({
     provider,
     model: req.models?.[provider] || defaultModel(provider),
     status: 'running',
     branchIndex,
     progress: 0,
+    judgeModel,
   }));
 
   const row = {
@@ -53,7 +62,7 @@ export async function createMulti3Session(
     command: req.command,
     command_args: req.args || '',
     providers: req.providers,
-    judge_provider: req.judgeProvider || DEFAULT_JUDGE_PROVIDER,
+    judge_provider: judgeProvider,
     status: 'running',
     candidates,
     parent_version_id: req.versionId,
@@ -125,7 +134,9 @@ export async function patchMulti3Candidate(
   const session = await getMulti3Session(sessionId);
   if (!session) return;
   const candidates = session.candidates.map((c) =>
-    (c.branchIndex ?? session.providers.indexOf(c.provider)) === branchIndex ? candidate : c
+    (c.branchIndex ?? session.providers.indexOf(c.provider)) === branchIndex
+      ? { ...c, ...candidate }
+      : c
   );
   await updateMulti3Session(sessionId, { candidates });
 }

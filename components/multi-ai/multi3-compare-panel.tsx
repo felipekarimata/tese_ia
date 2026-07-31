@@ -33,6 +33,7 @@ type Multi3ComparePanelProps = {
   onClose: () => void;
   onAccepted: (session: Multi3Session) => void;
   onSessionUpdate: (session: Multi3Session) => void;
+  modelsByProvider?: Partial<Record<AIProvider, string>>;
 };
 
 export function Multi3ComparePanel({
@@ -42,6 +43,7 @@ export function Multi3ComparePanel({
   onClose,
   onAccepted,
   onSessionUpdate,
+  modelsByProvider,
 }: Multi3ComparePanelProps) {
   const [accepting, setAccepting] = useState(false);
   const [judging, setJudging] = useState(false);
@@ -54,6 +56,10 @@ export function Multi3ComparePanel({
   const completed = session.candidates.filter((c) => c.status === 'completed');
   const isTextOnly = session.command === '/perguntar';
   const isAccepted = session.status === 'accepted';
+  const selectedJudgeModel =
+    modelsByProvider?.[judgeProvider] ||
+    session.candidates.find((candidate) => candidate.provider === judgeProvider)?.model ||
+    (judgeProvider === session.judgeProvider ? session.judgeModel : undefined);
 
   const handleAccept = async (provider?: AIProvider) => {
     try {
@@ -79,7 +85,7 @@ export function Multi3ComparePanel({
       const res = await fetch(`${basePath}/judge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ judgeProvider }),
+        body: JSON.stringify({ judgeProvider, judgeModel: selectedJudgeModel }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Falha ao re-juizar');
@@ -113,7 +119,8 @@ export function Multi3ComparePanel({
           <div className="mx-6 mt-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3">
             <div className="flex items-center gap-2 text-yellow-400 text-sm font-medium mb-1">
               <Trophy className="h-4 w-4" />
-              Recomendação do juiz ({PROVIDER_LABEL[session.judgeProvider]})
+              Recomendação do juiz ({PROVIDER_LABEL[session.judgeProvider]}
+              {session.judgeModel ? ` · ${session.judgeModel}` : ''})
               {session.winnerProvider && `: ${PROVIDER_LABEL[session.winnerProvider]}`}
             </div>
             <p className="text-sm text-gray-300">{session.judgeReasoning}</p>
@@ -182,6 +189,11 @@ export function Multi3ComparePanel({
                           {candidate.versionIds.length} versão(ões) no branch /todos
                         </p>
                       )}
+                      {session.command === '/todos' && candidate.provider === 'grok' && (
+                        <p className="text-xs text-amber-400/80">
+                          Revisão jurídica deste ramo: Gemini/gemini-2.5-flash.
+                        </p>
+                      )}
                       {!isTextOnly && candidate.versionId && (chapterId || documentId) && (
                         <Button
                           variant="outline"
@@ -232,7 +244,9 @@ export function Multi3ComparePanel({
               </SelectTrigger>
               <SelectContent>
                 {(['gemini', 'openai', 'anthropic', 'grok'] as AIProvider[]).map((p) => (
-                  <SelectItem key={p} value={p}>{PROVIDER_LABEL[p]}</SelectItem>
+                  <SelectItem key={p} value={p}>
+                    {PROVIDER_LABEL[p]} — {modelsByProvider?.[p] || session.candidates.find((c) => c.provider === p)?.model || 'modelo padrão'}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

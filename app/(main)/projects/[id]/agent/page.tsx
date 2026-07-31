@@ -20,7 +20,7 @@ import { cancelJobRequest } from '@/components/jobs-status-button';
 import { Multi3ComparePanel } from '@/components/multi-ai/multi3-compare-panel';
 import { Multi3CommandHelp } from '@/components/multi-ai/multi3-command-help';
 import { parseMulti3Command, buildMulti3ApiBody, pollMulti3Session, startMulti3WithRun, formatMulti3Progress, getMulti3FailureMessage, explainMulti3ParseFailure } from '@/lib/agent/multi3-client';
-import { resolveMulti3Models } from '@/lib/multi-ai/models';
+import { MULTI3_PROVIDERS, resolveMulti3Models } from '@/lib/multi-ai/models';
 import { getAIErrorMessage } from '@/lib/ai-error-message';
 import { MULTI3_SHORT_DESCRIPTION } from '@/lib/agent/command-reference';
 import { AUTORIA_SETTINGS_UPDATED } from '@/components/settings/events';
@@ -672,7 +672,7 @@ export default function ProjectAgentPage() {
       return;
     }
 
-    const multi3Follow = parseMulti3Command(trimmed);
+    const multi3Follow = parseMulti3Command(trimmed, settings);
     if (multi3Follow.kind === 'choose' && activeMulti3Session && selectedDocId) {
       appendMessage({ role: 'user', content: trimmed });
       setInput('');
@@ -701,17 +701,24 @@ export default function ProjectAgentPage() {
       return;
     }
 
-    const multi3Start = parseMulti3Command(trimmed);
+    const multi3Start = parseMulti3Command(trimmed, settings);
     if (multi3Start.kind === 'start') {
       setSending(true);
+      const models = resolveMulti3Models(
+        multi3Start.providers,
+        settings,
+        multi3Start.judgeProvider
+      );
+      const modelSummary = multi3Start.providers
+        .map((provider) => `${provider}/${models[provider]}`)
+        .join(', ');
       const asstId = appendMessage({
         role: 'assistant',
-        content: `Multi-IA iniciada (${multi3Start.providers.join(', ')})`,
+        content: `Multi-IA iniciada (${modelSummary})`,
         status: 'running',
         command: '/3',
       });
       try {
-        const models = resolveMulti3Models(multi3Start.providers, settings);
         const apiBody = buildMulti3ApiBody(multi3Start, selectedDocId, models);
         const base = `/api/documents/${selectedDocId}/multi3`;
         const sessionId = await startMulti3WithRun(base, apiBody);
@@ -754,7 +761,7 @@ export default function ProjectAgentPage() {
       return;
     }
 
-    if (trimmed.toLowerCase().startsWith('/3')) {
+    if (/(^|\s)\/3(?:\s|$)/i.test(trimmed)) {
       appendMessage({
         role: 'system',
         content: explainMulti3ParseFailure(trimmed),
@@ -1237,6 +1244,7 @@ export default function ProjectAgentPage() {
             toast.success(`Versão ${session.winnerProvider} aplicada ao documento`);
           }}
           onSessionUpdate={setActiveMulti3Session}
+          modelsByProvider={resolveMulti3Models(MULTI3_PROVIDERS, settings)}
         />
       )}
     </div>

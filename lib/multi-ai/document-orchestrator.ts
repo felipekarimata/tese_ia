@@ -19,7 +19,7 @@ import {
   isMulti3SessionStale,
 } from './session-store';
 import { judgeMulti3Results } from './judge';
-import { Multi3StartRequest, Multi3Session, Multi3Candidate } from './types';
+import { Multi3StartRequest, Multi3Session, Multi3Candidate, DEFAULT_JUDGE_PROVIDER } from './types';
 import { AIProvider } from '@/lib/ai/types';
 import { chatWithAgent } from '@/lib/ai/agent-chat';
 import { buildDocumentContext } from '@/lib/document-processing/context';
@@ -43,7 +43,9 @@ export async function startDocumentMulti3(
   documentId: string,
   req: Multi3StartRequest
 ): Promise<Multi3Session> {
-  const models = sanitizeMulti3Models(req.providers, req.models || {});
+  const judgeProvider = req.judgeProvider || DEFAULT_JUDGE_PROVIDER;
+  const modelProviders = Array.from(new Set([...req.providers, judgeProvider]));
+  const models = sanitizeMulti3Models(modelProviders, req.models || {});
 
   const session = await createMulti3Session('document', documentId, { ...req, models });
   return session;
@@ -82,9 +84,12 @@ export async function executeDocumentMulti3Session(
     command: session.command,
     args: session.commandArgs,
     versionId: session.parentVersionId || documentId,
-    models: Object.fromEntries(
+    models: {
+      ...Object.fromEntries(
       session.candidates.map((c) => [c.provider, c.model])
-    ) as Partial<Record<AIProvider, string>>,
+      ),
+      [session.judgeProvider]: session.judgeModel || multi3DefaultModel(session.judgeProvider),
+    } as Partial<Record<AIProvider, string>>,
   };
 
   try {

@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       style = 'simplified',
       targetAudience,
       provider = 'openai',
-      model = 'gpt-5.6'
+      model = 'gpt-5.6-terra'
     }: {
       documentId?: string;
       sourceDocumentPath?: string;

@@ -27,7 +27,7 @@ export async function POST(
       targetLanguage,
       sourceLanguage,
       provider = 'openai',
-      model = 'gpt-5.6',
+      model = 'gpt-5.6-terra',
       maxPages,
       references = [],
       editorialProfile

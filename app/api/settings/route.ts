@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { state, toPublicSettings } from '@/lib/state';
 import type { SkillsSettings } from '@/lib/skills/types';
 import { DEFAULT_SKILLS_SETTINGS } from '@/lib/skills/types';
+import { normalizeMulti3Settings } from '@/lib/multi-ai/models';
 
 export const runtime = 'nodejs';
 
@@ -31,7 +32,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { openaiKey, googleKey, xaiKey, anthropicKey, models, documentProcessing, skills } = body;
+    const { openaiKey, googleKey, xaiKey, anthropicKey, models, multi3, documentProcessing, skills } = body;
 
     if (typeof openaiKey === 'string' && openaiKey.trim()) {
       state.settings.openaiKey = openaiKey.trim();
@@ -46,6 +47,10 @@ export async function POST(request: NextRequest) {
       state.settings.anthropicKey = anthropicKey.trim();
     }
     if (models !== undefined) state.settings.models = models;
+    state.settings.multi3 = normalizeMulti3Settings(
+      multi3 ?? state.settings.multi3,
+      state.settings.models
+    );
     if (documentProcessing !== undefined) {
       state.settings.documentProcessing = {
         ...state.settings.documentProcessing,

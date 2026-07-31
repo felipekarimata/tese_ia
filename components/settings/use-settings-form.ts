@@ -6,6 +6,8 @@ import { DEFAULT_DOCUMENT_PROCESSING } from '@/lib/document-processing/mode';
 import type { SkillsSettings } from '@/lib/skills/types';
 import { DEFAULT_SKILLS_SETTINGS } from '@/lib/skills/types';
 import { dispatchSettingsUpdated } from './events';
+import type { Multi3Settings } from '@/lib/multi-ai/types';
+import { DEFAULT_MULTI3_SETTINGS, normalizeMulti3Settings } from '@/lib/multi-ai/models';
 
 export type AIProviderKey = 'openai' | 'gemini' | 'grok' | 'anthropic';
 
@@ -15,6 +17,7 @@ export type AppSettings = {
   hasXaiKey?: boolean;
   hasAnthropicKey?: boolean;
   models?: Record<AIProviderKey, string[]>;
+  multi3?: Multi3Settings;
   documentProcessing?: {
     mode?: string;
     maxWholeDocumentChars?: number;
@@ -143,6 +146,25 @@ export function useSettingsForm(options?: { autoLoad?: boolean; loadModelsOnMoun
     }));
   }, []);
 
+  const updateMulti3 = useCallback((patch: Partial<Multi3Settings>) => {
+    setSettings((prev) => ({
+      ...prev,
+      multi3: normalizeMulti3Settings(
+        {
+          ...DEFAULT_MULTI3_SETTINGS,
+          ...prev?.multi3,
+          ...patch,
+          defaultModels: {
+            ...DEFAULT_MULTI3_SETTINGS.defaultModels,
+            ...prev?.multi3?.defaultModels,
+            ...patch.defaultModels,
+          },
+        },
+        prev?.models
+      ),
+    }));
+  }, []);
+
   const setSkillOverride = useCallback((key: string, value: string) => {
     setSettings((prev) => ({
       ...prev,
@@ -183,9 +205,11 @@ export function useSettingsForm(options?: { autoLoad?: boolean; loadModelsOnMoun
       const newModels = isSelected
         ? currentModels.filter((m) => m !== model)
         : [...currentModels, model];
+      const models = { ...prev?.models, [provider]: newModels } as Record<AIProviderKey, string[]>;
       return {
         ...prev,
-        models: { ...prev?.models, [provider]: newModels } as Record<AIProviderKey, string[]>,
+        models,
+        multi3: normalizeMulti3Settings(prev?.multi3, models),
       };
     });
   }, []);
@@ -197,6 +221,7 @@ export function useSettingsForm(options?: { autoLoad?: boolean; loadModelsOnMoun
       try {
         const payload: Record<string, unknown> = {
           models: settings.models,
+          multi3: settings.multi3 ?? DEFAULT_MULTI3_SETTINGS,
           documentProcessing: settings.documentProcessing,
           skills: settings.skills ?? DEFAULT_SKILLS_SETTINGS,
         };
@@ -251,6 +276,7 @@ export function useSettingsForm(options?: { autoLoad?: boolean; loadModelsOnMoun
     updateDocumentProcessing,
     resetDocumentProcessingDefaults,
     updateSkills,
+    updateMulti3,
     setSkillOverride,
     clearSkillOverride,
     toggleModel,
