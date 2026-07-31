@@ -36,6 +36,7 @@ export async function POST(
       model?: string;
       maxPages?: number;
       sourceDocumentPath?: string;
+      editorialProfile?: 'book-ptbr';
     };
     try {
       body = await req.json();
@@ -51,7 +52,8 @@ export async function POST(
       provider,
       model,
       maxPages,
-      sourceDocumentPath // Optional: for pipeline usage
+      sourceDocumentPath, // Optional: for pipeline usage
+      editorialProfile
     } = body;
 
     if (!targetLanguage || !provider || !model) {
@@ -68,7 +70,8 @@ export async function POST(
       provider,
       model,
       maxPages,
-      sourceDocumentPath
+      sourceDocumentPath,
+      editorialProfile
     });
 
     // Executa tradução em background (fire-and-forget)
@@ -79,7 +82,8 @@ export async function POST(
       provider,
       model,
       maxPages,
-      sourceDocumentPath
+      sourceDocumentPath,
+      editorialProfile
     }).catch((err) => console.error('[TRANSLATE] Background job error:', err));
 
     return NextResponse.json({

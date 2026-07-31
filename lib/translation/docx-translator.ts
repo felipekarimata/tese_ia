@@ -15,7 +15,10 @@ function normalizeForMatch(text: string): string {
 /**
  * Extrai todos os textos de um arquivo DOCX preservando estrutura XML
  */
-export async function extractTextsFromDocx(filePath: string): Promise<{
+export async function extractTextsFromDocx(
+  filePath: string,
+  options: { includeNotes?: boolean } = {}
+): Promise<{
   zip: JSZip;
   textElements: TextElement[];
 }> {
@@ -34,12 +37,14 @@ export async function extractTextsFromDocx(filePath: string): Promise<{
     'word/footer1.xml',
     'word/footer2.xml',
     'word/footer3.xml',
-    'word/endnotes.xml',
-    'word/footnotes.xml',
     // Text boxes podem estar em arquivos de shapes
     'word/comments.xml',
     'word/textbox.xml'
   ];
+
+  if (options.includeNotes !== false) {
+    xmlPaths.push('word/endnotes.xml', 'word/footnotes.xml');
+  }
 
   // Também procura por arquivos header/footer/drawing adicionais dinamicamente
   const allFiles = Object.keys(zip.files);
@@ -512,7 +517,8 @@ async function translateBatch(
             sourceLanguage,
             provider,
             model,
-            options.glossary
+            options.glossary,
+            options.editorialProfile
           );
           finalTranslation += partTranslation + ' ';
         }
@@ -526,7 +532,8 @@ async function translateBatch(
           sourceLanguage,
           provider,
           model,
-          options.glossary
+          options.glossary,
+          options.editorialProfile
         );
       }
 
@@ -615,7 +622,8 @@ async function translateBatch(
               sourceLanguage,
               provider,
               model,
-              options.glossary
+              options.glossary,
+              options.editorialProfile
             );
             finalTranslation += partTranslation + ' ';
           }
@@ -642,7 +650,8 @@ async function translateBatch(
               sourceLanguage,
               provider,
               model,
-              options.glossary
+              options.glossary,
+              options.editorialProfile
             );
 
             const retry2Validation = validateTranslation(text, finalTranslation, true);
@@ -672,7 +681,8 @@ async function translateBatch(
                 sourceLanguage,
                 provider,
                 model,
-                options.glossary
+                options.glossary,
+                options.editorialProfile
               );
               finalTranslation += partTranslation + ' ';
             } catch (error: any) {
@@ -724,7 +734,8 @@ async function translateBatch(
             sourceLanguage,
             provider,
             model,
-            options.glossary
+            options.glossary,
+            options.editorialProfile
           );
 
           if (emergencyTranslation && emergencyTranslation.trim().length > 0) {
@@ -1016,7 +1027,9 @@ export async function translateDocx(
   try {
     // 1. Extrai textos
     log('\n[EXTRACT] 🔍 Extracting text from DOCX...');
-    let { zip, textElements } = await extractTextsFromDocx(inputPath);
+    let { zip, textElements } = await extractTextsFromDocx(inputPath, {
+      includeNotes: !options.preserveNotes,
+    });
     log(`[EXTRACT] ✓ Found ${textElements.length} text elements`);
 
     if (textElements.length === 0) {

@@ -19,7 +19,8 @@ export async function POST(req: NextRequest) {
       creativity = 5,
       provider = 'openai',
       model = 'gpt-5.6',
-      useGrounding = false
+      useGrounding = false,
+      editorialProfile
     }: {
       documentId?: string;
       sourceDocumentPath?: string;
@@ -28,6 +29,7 @@ export async function POST(req: NextRequest) {
       provider?: 'openai' | 'gemini' | 'grok' | 'anthropic';
       model?: string;
       useGrounding?: boolean;
+      editorialProfile?: 'book';
     } = await req.json();
 
     if (!instructions) {
@@ -93,7 +95,8 @@ export async function POST(req: NextRequest) {
       creativity,
       provider,
       model,
-      useGrounding
+      useGrounding,
+      editorialProfile
     ).catch(err => {
       console.error('[ADJUST] Background error:', err);
     });
@@ -124,7 +127,8 @@ async function executeAdjust(
   creativity: number,
   provider: 'openai' | 'gemini' | 'grok' | 'anthropic',
   model: string,
-  useGrounding: boolean
+  useGrounding: boolean,
+  editorialProfile?: 'book'
 ) {
   try {
     console.log(`[ADJUST ${jobId}] Starting adjustment analysis...`);
@@ -190,7 +194,9 @@ async function executeAdjust(
       provider,
       model,
       apiKey,
-      useGrounding
+      useGrounding,
+      undefined,
+      editorialProfile === 'book' ? 'book' : 'direct'
     );
 
     console.log(`[ADJUST ${jobId}] Generated ${suggestions.length} adjustment suggestions`);

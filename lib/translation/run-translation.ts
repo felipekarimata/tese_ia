@@ -6,6 +6,7 @@ import { translateDocx } from '@/lib/translation/docx-translator';
 import { TranslationOptions, SupportedLanguage } from '@/lib/translation/types';
 import { AIProvider } from '@/lib/ai/types';
 import { supabase } from '@/lib/supabase';
+import { BOOK_TECHNICAL_GLOSSARY } from '@/lib/book-workflow/prompts';
 
 export type RunTranslationParams = {
   documentId: string;
@@ -15,6 +16,7 @@ export type RunTranslationParams = {
   model: string;
   maxPages?: number;
   sourceDocumentPath?: string;
+  editorialProfile?: 'book-ptbr';
 };
 
 /**
@@ -56,7 +58,8 @@ export async function executeTranslation(
     provider,
     model,
     maxPages,
-    sourceDocumentPath
+    sourceDocumentPath,
+    editorialProfile
   } = params;
 
   const tempDir = os.tmpdir();
@@ -97,6 +100,9 @@ export async function executeTranslation(
       provider,
       model,
       maxPages,
+      preserveNotes: editorialProfile === 'book-ptbr',
+      editorialProfile,
+      glossary: editorialProfile === 'book-ptbr' ? BOOK_TECHNICAL_GLOSSARY : undefined,
       onProgress: async (progress) => {
         await supabase
           .from('translation_jobs')

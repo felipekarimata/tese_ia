@@ -50,6 +50,8 @@ export type TranslationOptions = {
   chunkSize?: number; // Tamanho do chunk de texto (default: 2000)
   maxPages?: number; // Limita tradução às primeiras N páginas (útil para testes)
   glossary?: Array<{ term: string; caseSensitive: boolean; wholeWord: boolean }>; // Termos que não devem ser traduzidos
+  preserveNotes?: boolean; // Mantém footnotes/endnotes fora das chamadas de IA
+  editorialProfile?: 'book-ptbr';
   onProgress?: (progress: TranslationProgress) => void;
   onLog?: (message: string) => void; // Callback para logs em tempo real
 };

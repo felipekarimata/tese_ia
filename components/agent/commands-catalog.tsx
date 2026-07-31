@@ -5,16 +5,10 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  buildCommandCatalog,
-  MULTI3_PROVIDER_HINT,
-  MULTI3_SHORT_DESCRIPTION,
-} from '@/lib/agent/command-reference';
+import { buildCommandCatalog } from '@/lib/agent/command-reference';
 import { fetchAppSettings } from '@/components/settings/use-settings-form';
 import { cn } from '@/lib/utils';
-import {
-  ArrowLeft, Bot, Copy, Check, Search, Sparkles, Cpu, Terminal,
-} from 'lucide-react';
+import { ArrowLeft, Copy, Check, Search, Sparkles, Terminal } from 'lucide-react';
 import { toast } from 'sonner';
 
 type CommandsCatalogProps = {
@@ -86,17 +80,6 @@ export function CommandsCatalog({
         </div>
       )}
 
-      <div className="rounded-xl border border-indigo-500/25 bg-indigo-500/[0.06] p-4 space-y-2">
-        <div className="flex items-center gap-2 text-indigo-300 text-sm font-medium">
-          <Cpu className="h-4 w-4" />
-          Multi-IA `/3`
-        </div>
-        <p className="text-sm text-gray-400">{MULTI3_SHORT_DESCRIPTION}</p>
-        <p className="text-xs text-gray-500">
-          <strong className="text-gray-400">Provedores:</strong> {MULTI3_PROVIDER_HINT}
-        </p>
-      </div>
-
       {!compact && (
         <div className="relative max-w-xl">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
@@ -117,13 +100,7 @@ export function CommandsCatalog({
           >
             <div className="px-5 py-4 border-b border-white/10">
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                {cat.id.startsWith('multi3') ? (
-                  <Cpu className="h-4 w-4 text-indigo-400" />
-                ) : cat.id === 'perguntar' ? (
-                  <Bot className="h-4 w-4 text-cyan-400" />
-                ) : (
-                  <Sparkles className="h-4 w-4 text-red-400" />
-                )}
+                <Sparkles className="h-4 w-4 text-red-400" />
                 {cat.title}
               </h2>
               <p className="text-sm text-gray-500 mt-1">{cat.description}</p>
@@ -178,8 +155,8 @@ export function CommandsCatalog({
           <ul className="list-disc list-inside space-y-1 text-xs">
             <li>Digite <Badge variant="outline" className="text-[10px] mx-1">/</Badge> no chat para ver autocomplete</li>
             <li>Enter envia · Shift+Enter quebra linha</li>
-            <li>Após o `/3`, todas as versões ficam no <strong className="text-gray-400">Histórico</strong> agrupadas por sessão Multi-IA</li>
-            <li>A melhor versão é ativada automaticamente; use <code className="text-indigo-300">/3 escolher</code> para trocar</li>
+            <li><code className="text-red-300">/livro continuar</code> confirma a aprovação do passo anterior e inicia o próximo</li>
+            <li><code className="text-red-300">/livro status</code> mostra o próximo passo; <code className="text-red-300">/livro reiniciar</code> descarta o estado salvo</li>
           </ul>
         </div>
       )}

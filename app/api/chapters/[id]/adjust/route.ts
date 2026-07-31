@@ -29,7 +29,8 @@ export async function POST(
       model = 'gpt-5.6',
       useGrounding = false,
       references = [],
-      contextVersionIds = []
+      contextVersionIds = [],
+      editorialProfile
     }: {
       versionId: string;
       instructions: string;
@@ -39,6 +40,7 @@ export async function POST(
       useGrounding?: boolean;
       references?: ReferenceInput[];
       contextVersionIds?: string[];
+      editorialProfile?: 'book';
     } = body;
 
     if (!versionId) {
@@ -101,7 +103,8 @@ export async function POST(
       model,
       references,
       useGrounding,
-      contextVersionIds
+      contextVersionIds,
+      editorialProfile
     ).catch(err => {
       console.error('[CHAPTER-ADJUST-API] Background error:', err);
     });

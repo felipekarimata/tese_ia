@@ -6,6 +6,8 @@ import { state } from '../state';
 import { isGemini429, parseGeminiRetryDelayMs, sleep } from '../ai/gemini-retry';
 import { protectElements, restoreElements, validatePlaceholders } from './validation-enhancer';
 import { protectGlossaryTerms, restoreGlossaryTerms, DEFAULT_GLOSSARY, type GlossaryEntry } from './glossary';
+import { sanitizeEditorialText } from '@/lib/book-workflow/output';
+import { BOOK_TRANSLATION_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
 
 /**
  * Traduz texto usando APENAS OpenAI com retry automático em caso de rate limit
@@ -16,9 +18,13 @@ export async function translateTextDirect(
   sourceLanguage: string | undefined,
   provider: AIProvider,
   model: string,
-  glossary?: GlossaryEntry[]
+  glossary?: GlossaryEntry[],
+  editorialProfile?: 'book-ptbr'
 ): Promise<string> {
   let workingText = text;
+
+  const glossaryProtection = protectGlossaryTerms(workingText, glossary ?? DEFAULT_GLOSSARY);
+  workingText = glossaryProtection.protectedText;
 
   // 🛡️ STEP 1: Protect numbers, dates, and proper nouns
   const { protectedText, elements } = protectElements(workingText);
@@ -32,6 +38,8 @@ export async function translateTextDirect(
   console.log(`[TRANSLATE-DIRECT] Source: ${sourceLanguage || 'AUTO-DETECT'} → Target: ${targetLanguage}`);
 
   const prompt = `You are a PROFESSIONAL TRANSLATOR. Your ONLY job is to translate text WORD-BY-WORD with ABSOLUTE FIDELITY.
+
+${editorialProfile === 'book-ptbr' ? BOOK_TRANSLATION_INSTRUCTIONS : ''}
 
 TARGET LANGUAGE: ${targetLanguage.toUpperCase()}
 ${sourceLanguage ? `SOURCE LANGUAGE: ${sourceLanguage.toUpperCase()}` : 'Auto-detect source language'}
@@ -99,7 +107,7 @@ TRANSLATION (must have similar length and same number of sentences, with MANDATO
   console.log(`[TRANSLATE] 📥 RECEIVED FROM AI:\n---\n${result}\n---`);
 
   // 🛡️ STEP 2: Restore protected elements
-  let finalResult = result;
+  let finalResult = sanitizeEditorialText(result);
 
   if (hasProtectedElements) {
     const validation = validatePlaceholders(protectedText, finalResult, elements);
@@ -109,6 +117,8 @@ TRANSLATION (must have similar length and same number of sentences, with MANDATO
     finalResult = restoreElements(finalResult, elements);
     console.log(`[PROTECT] Restored ${elements.numbers.size + elements.dates.size} protected elements`);
   }
+
+  finalResult = restoreGlossaryTerms(finalResult, glossaryProtection.replacements);
 
   return finalResult;
 }

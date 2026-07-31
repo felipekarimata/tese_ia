@@ -11,6 +11,9 @@ import { resolveSkillPrompt } from '@/lib/skills/resolver';
 import type { SkillContext } from '@/lib/skills/types';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { formatResearchEvidence, researchWithWebSearch } from '@/lib/ai/research';
+import { BOOK_RESEARCH_DOMAINS } from '@/lib/book-workflow/prompts';
+import { sanitizeEditorialText } from '@/lib/book-workflow/output';
 
 /**
  * Analyze document and generate adjustments based on instructions
@@ -93,7 +96,25 @@ async function analyzeBatch(
   skillContext: SkillContext = 'direct'
 ): Promise<AdjustSuggestion[]> {
 
-  const prompt = buildPrompt(paragraphs, sectionTitle, instructions, creativity, skillContext);
+  let prompt = buildPrompt(paragraphs, sectionTitle, instructions, creativity, skillContext);
+
+  if (useGrounding && provider !== 'gemini') {
+    try {
+      const research = await researchWithWebSearch({
+        provider,
+        model,
+        apiKey,
+        depth: 'deep',
+        topic: `Pesquise fontes atuais e verificáveis para executar esta tarefa editorial no trecho "${sectionTitle}": ${instructions.substring(0, 2_000)}`,
+        context: paragraphs.map((paragraph) => paragraph.text).join('\n\n').substring(0, 12_000),
+        preferredDomains: [...BOOK_RESEARCH_DOMAINS],
+      });
+      prompt += `\n\nPESQUISA WEB OBRIGATÓRIA\nUse somente evidências realmente devolvidas abaixo para afirmações factuais novas. Inclua as URLs pertinentes no campo reason, nunca em metatexto dentro de adjustedText.\n\nSÍNTESE\n${research.text.substring(0, 12_000)}\n\nFONTES\n${formatResearchEvidence(research.sources)}`;
+    } catch (error) {
+      console.warn('[ADJUST] Web research failed; factual additions must be omitted or marked for verification.', error);
+      prompt += '\n\nA pesquisa web falhou. Não introduza nenhuma afirmação factual nova sem fonte; limite-se a análise autoral fundamentada e registre [VERIFICAR] no campo reason.';
+    }
+  }
 
   let responseText = '';
 
@@ -184,7 +205,7 @@ async function analyzeBatch(
       paragraphIndex: adj.paragraphIndex || 0,
       sectionTitle,
       originalText: adj.originalText || '',
-      adjustedText: adj.adjustedText || '',
+      adjustedText: sanitizeEditorialText(adj.adjustedText),
       reason: adj.reason || '',
       instructionReference: adj.instructionReference || ''
     }));
@@ -206,7 +227,7 @@ function buildPrompt(
   sectionTitle: string,
   instructions: string,
   creativity: number,
-  skillContext: 'direct' | 'todos' = 'direct'
+  skillContext: SkillContext = 'direct'
 ): string {
   const paragraphsText = paragraphs
     .map((p, idx) => `[${idx}] ${p.text}`)

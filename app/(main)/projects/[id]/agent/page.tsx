@@ -10,7 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ArrowLeft, Send, FileText, PanelLeftClose, PanelLeftOpen, Sparkles,
   Loader2, Trash2, Languages, Wand2, Sliders, SearchCheck,
-  CheckCircle2, AlertCircle, Bot, User as UserIcon, Download, Folder, Cpu, ExternalLink, Ban, Terminal
+  CheckCircle2, AlertCircle, Bot, User as UserIcon, Download, Folder, Cpu, ExternalLink, Ban, Terminal, BookOpen
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -33,6 +33,27 @@ import {
 } from '@/lib/agent/skill-dispatch';
 import type { Multi3Session } from '@/lib/multi-ai/types';
 import { DocumentHtmlViewer } from '@/components/document/chapter-document-editor';
+import {
+  BOOK_COMMANDS as BOOK_COMMAND_DEFINITIONS,
+  disabledCommandMessage,
+  getSlashCommandName,
+  isBookCommand,
+  type BookCommandName,
+} from '@/lib/book-workflow/commands';
+import {
+  BOOK_FINALIZE_INSTRUCTIONS,
+  BOOK_IMPROVE_INSTRUCTIONS,
+  buildBookAdjustInstructions,
+} from '@/lib/book-workflow/prompts';
+import {
+  BOOK_WORKFLOW_STEPS,
+  completeBookWorkflowStep,
+  createBookWorkflowState,
+  formatBookWorkflowStatus,
+  parseBookWorkflowAction,
+  type BookWorkflowState,
+  type BookWorkflowStepNumber,
+} from '@/lib/book-workflow/state';
 
 type AIProvider = 'openai' | 'gemini' | 'grok' | 'anthropic';
 
@@ -90,16 +111,29 @@ type SlashCommand = {
   color: string;
 };
 
-const COMMANDS: SlashCommand[] = [
-  { name: '/perguntar', args: '<pergunta>',   example: '/perguntar do que se trata',      description: 'Pergunte algo sobre o documento — sem editar',  icon: <Bot         className="h-4 w-4" />, color: 'text-cyan-400' },
-  { name: '/traduzir',  args: '<idioma>',     example: '/traduzir inglês',                description: 'Traduz o documento para outro idioma',          icon: <Languages   className="h-4 w-4" />, color: 'text-purple-400' },
-  { name: '/adaptar',   args: '<estilo>',     example: '/adaptar simplificado',           description: 'Adapta o tom (academic, professional, simplified)', icon: <Wand2       className="h-4 w-4" />, color: 'text-pink-400' },
-  { name: '/ajustar',   args: '<instruções>', example: '/ajustar expandir a conclusão',   description: 'Aplica uma edição: IA cria uma nova versão',     icon: <Sliders     className="h-4 w-4" />, color: 'text-orange-400' },
-  { name: '/revisar',   args: '',             example: '/revisar',                        description: 'Pesquisa mudanças factuais e evidências recentes', icon: <SearchCheck className="h-4 w-4" />, color: 'text-yellow-400' },
-  { name: '/todos',     args: '',             example: '/todos',                          description: 'Traduz para português, adapta e revisa normas em sequência', icon: <Sparkles className="h-4 w-4" />, color: 'text-red-400' },
-  { name: '/3',         args: '<ias> <cmd>',  example: '/3 gemini openai claude /ajustar expandir', description: MULTI3_SHORT_DESCRIPTION, icon: <Cpu className="h-4 w-4" />, color: 'text-indigo-400' },
-  { name: '/limpar',    args: '',             example: '/limpar',                         description: 'Limpa a conversa',                                  icon: <Trash2      className="h-4 w-4" />, color: 'text-gray-400' },
-];
+const COMMAND_ICONS: Record<BookCommandName, React.ReactNode> = {
+  '/traduzir': <Languages className="h-4 w-4" />,
+  '/revisar': <SearchCheck className="h-4 w-4" />,
+  '/ajustar': <Sliders className="h-4 w-4" />,
+  '/aprimorar': <Wand2 className="h-4 w-4" />,
+  '/finalizar': <BookOpen className="h-4 w-4" />,
+  '/livro': <Sparkles className="h-4 w-4" />,
+};
+
+const COMMAND_COLORS: Record<BookCommandName, string> = {
+  '/traduzir': 'text-purple-400',
+  '/revisar': 'text-yellow-400',
+  '/ajustar': 'text-orange-400',
+  '/aprimorar': 'text-green-400',
+  '/finalizar': 'text-blue-400',
+  '/livro': 'text-red-400',
+};
+
+const COMMANDS: SlashCommand[] = BOOK_COMMAND_DEFINITIONS.map((command) => ({
+  ...command,
+  icon: COMMAND_ICONS[command.name],
+  color: COMMAND_COLORS[command.name],
+}));
 
 const LANGUAGE_MAP: Record<string, string> = {
   'português': 'pt', 'portugues': 'pt', 'pt': 'pt',
@@ -186,6 +220,7 @@ export default function ProjectAgentPage() {
   const [multi3PanelOpen, setMulti3PanelOpen] = useState(false);
 
   const storageKey = `agent-chat-project-${projectId}`;
+  const bookWorkflowStorageKey = `book-workflow-document-${selectedDocId || 'none'}`;
 
   // Load project + documents
   useEffect(() => {
@@ -379,9 +414,13 @@ export default function ProjectAgentPage() {
     });
   };
 
-  const runAdjustPipeline = async (instructions: string, command = '/ajustar') => {
-    if (!selectedDocId) return;
-    if (!currentAI) { appendMessage({ role: 'system', content: 'Selecione um provedor de IA no topo.', status: 'error' }); return; }
+  const runAdjustPipeline = async (
+    instructions: string,
+    command = '/ajustar',
+    options: { useGrounding?: boolean } = {}
+  ): Promise<boolean> => {
+    if (!selectedDocId) return false;
+    if (!currentAI) { appendMessage({ role: 'system', content: 'Selecione um provedor de IA no topo.', status: 'error' }); return false; }
 
     const asstId = appendMessage({
       role: 'assistant', command, status: 'running',
@@ -394,13 +433,14 @@ export default function ProjectAgentPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         documentId: selectedDocId, instructions, creativity: 5,
-        provider: currentAI.provider, model: currentAI.model, useGrounding: false,
+        provider: currentAI.provider, model: currentAI.model, useGrounding: options.useGrounding ?? false,
+        editorialProfile: 'book',
       }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       updateMessage(asstId, { status: 'error', content: err.error || 'Falha ao iniciar ajuste' });
-      return;
+      return false;
     }
     const data = await res.json();
     updateMessage(asstId, {
@@ -408,6 +448,168 @@ export default function ProjectAgentPage() {
       content: 'Ajuste iniciado. Acompanhe na página de resultado.',
       jobId: data.jobId,
       resultHref: `/adjustments/${data.jobId}`,
+    });
+    return true;
+  };
+
+  const loadBookWorkflowState = (): BookWorkflowState | null => {
+    if (typeof window === 'undefined' || !selectedDocId) return null;
+    try {
+      const raw = localStorage.getItem(bookWorkflowStorageKey);
+      return raw ? JSON.parse(raw) as BookWorkflowState : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const saveBookWorkflowState = (state: BookWorkflowState | null) => {
+    if (typeof window === 'undefined' || !selectedDocId) return;
+    if (state) localStorage.setItem(bookWorkflowStorageKey, JSON.stringify(state));
+    else localStorage.removeItem(bookWorkflowStorageKey);
+  };
+
+  const runBookTranslation = async (): Promise<boolean> => {
+    if (!selectedDocId || !currentAI) {
+      appendMessage({ role: 'system', content: 'Selecione um documento e um provedor de IA.', status: 'error' });
+      return false;
+    }
+    const asstId = appendMessage({
+      role: 'assistant',
+      command: '/traduzir',
+      status: 'running',
+      content: 'Traduzindo o corpo para pt-BR; notas de rodapé e notas de fim serão preservadas no idioma original...',
+      aiProvider: currentAI.provider,
+      aiModel: currentAI.model,
+    });
+    const res = await fetch(`/api/translate/${selectedDocId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetLanguage: 'pt',
+        provider: currentAI.provider,
+        model: currentAI.model,
+        editorialProfile: 'book-ptbr',
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      updateMessage(asstId, { status: 'error', content: err.error || 'Falha ao iniciar tradução' });
+      return false;
+    }
+    const data = await res.json();
+    updateMessage(asstId, {
+      status: 'success',
+      content: 'Tradução editorial iniciada. Abra o resultado, revise e aplique somente o que aprovar.',
+      jobId: data.jobId,
+      resultHref: `/translations/${data.jobId}`,
+    });
+    return true;
+  };
+
+  const runBookReview = async (): Promise<boolean> => {
+    if (!selectedDocId || !currentAI) {
+      appendMessage({ role: 'system', content: 'Selecione um documento e um provedor de IA.', status: 'error' });
+      return false;
+    }
+    const asstId = appendMessage({
+      role: 'assistant',
+      command: '/revisar',
+      status: 'running',
+      content: 'Pesquisando vigência, mudanças factuais e evidências econômicas recentes...',
+      aiProvider: currentAI.provider,
+      aiModel: currentAI.model,
+    });
+    const res = await fetch('/api/norms-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        documentId: selectedDocId,
+        provider: currentAI.provider,
+        model: currentAI.model,
+        reviewScope: 'currentness',
+        researchDepth: 'deep',
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      updateMessage(asstId, { status: 'error', content: err.error || 'Falha ao iniciar revisão' });
+      return false;
+    }
+    const data = await res.json();
+    updateMessage(asstId, {
+      status: 'success',
+      content: 'Revisão aprofundada iniciada. Abra o resultado, confira as fontes e aplique somente o que aprovar.',
+      jobId: data.jobId,
+      resultHref: `/norms-update/${data.jobId}`,
+    });
+    return true;
+  };
+
+  const runBookWorkflowStep = async (state: BookWorkflowState): Promise<boolean> => {
+    switch (state.nextStep) {
+      case 1:
+        return runBookTranslation();
+      case 2:
+        return runBookReview();
+      case 3:
+        return runAdjustPipeline(buildBookAdjustInstructions(state.authorInstruction), '/ajustar');
+      case 4:
+        return runAdjustPipeline(BOOK_IMPROVE_INSTRUCTIONS, '/aprimorar', { useGrounding: true });
+      case 5:
+        return runAdjustPipeline(BOOK_FINALIZE_INSTRUCTIONS, '/finalizar');
+    }
+  };
+
+  const handleBookWorkflow = async (args: string) => {
+    const action = parseBookWorkflowAction(args);
+    if (action.kind === 'reset') {
+      saveBookWorkflowState(null);
+      appendMessage({ role: 'assistant', content: 'Fluxo /livro reiniciado. Use /livro <instrução P3> para começar novamente.', status: 'success', command: '/livro' });
+      return;
+    }
+    const stored = loadBookWorkflowState();
+    if (action.kind === 'status') {
+      appendMessage({ role: 'assistant', content: stored ? formatBookWorkflowStatus(stored) : 'Nenhum fluxo /livro ativo.', status: 'success', command: '/livro' });
+      return;
+    }
+
+    let state: BookWorkflowState;
+    if (action.kind === 'start') {
+      if (stored?.status === 'active') {
+        appendMessage({ role: 'system', content: `${formatBookWorkflowStatus(stored)} Use /livro continuar ou /livro reiniciar.`, status: 'error' });
+        return;
+      }
+      try {
+        state = createBookWorkflowState(action.authorInstruction);
+      } catch (error: any) {
+        appendMessage({ role: 'system', content: error.message, status: 'error' });
+        return;
+      }
+      saveBookWorkflowState(state);
+    } else {
+      if (!stored || stored.status !== 'active') {
+        appendMessage({ role: 'system', content: 'Nenhum fluxo ativo. Use /livro <instrução P3> para começar.', status: 'error' });
+        return;
+      }
+      state = stored;
+    }
+
+    const step = BOOK_WORKFLOW_STEPS[state.nextStep - 1];
+    const workflowMessageId = appendMessage({ role: 'assistant', content: `Iniciando passo ${step.number}/5 — ${step.label}.`, status: 'running', command: '/livro' });
+    const started = await runBookWorkflowStep(state);
+    if (!started) {
+      updateMessage(workflowMessageId, { content: `O passo ${step.number}/5 não pôde ser iniciado. O fluxo permanece neste passo.`, status: 'error' });
+      return;
+    }
+
+    const nextState = completeBookWorkflowStep(state, state.nextStep as BookWorkflowStepNumber);
+    saveBookWorkflowState(nextState);
+    updateMessage(workflowMessageId, {
+      command: '/livro',
+      status: 'success',
+      content: nextState.status === 'completed'
+        ? 'Fluxo /livro concluído. Os cinco passos foram iniciados e aprovados pelo autor.'
+        : `Passo ${step.number}/5 iniciado. Abra o resultado, aplique somente o que aprovar e então use /livro continuar. ${formatBookWorkflowStatus(nextState)}`,
     });
   };
 
@@ -461,6 +663,14 @@ export default function ProjectAgentPage() {
   const handleCommand = async (raw: string) => {
     const trimmed = raw.trim();
     if (!trimmed) return;
+
+    const submittedCommand = getSlashCommandName(trimmed);
+    if (submittedCommand && !isBookCommand(submittedCommand)) {
+      appendMessage({ role: 'user', content: trimmed });
+      setInput('');
+      appendMessage({ role: 'system', content: disabledCommandMessage(submittedCommand), status: 'error' });
+      return;
+    }
 
     const multi3Follow = parseMulti3Command(trimmed);
     if (multi3Follow.kind === 'choose' && activeMulti3Session && selectedDocId) {
@@ -629,40 +839,7 @@ export default function ProjectAgentPage() {
         }
 
         case '/traduzir': {
-          if (!args) {
-            appendMessage({ role: 'system', content: 'Use: /traduzir <idioma>. Ex: /traduzir inglês', status: 'error' });
-            return;
-          }
-          const lang = LANGUAGE_MAP[args.toLowerCase().split(/\s+/)[0]];
-          if (!lang) {
-            appendMessage({ role: 'system', content: 'Idioma não reconhecido.', status: 'error' });
-            return;
-          }
-          if (!currentAI) { appendMessage({ role: 'system', content: 'Selecione um provedor de IA no topo.', status: 'error' }); return; }
-
-          const asstId = appendMessage({
-            role: 'assistant', command: cmd, status: 'running',
-            content: `Iniciando tradução para ${args}...`,
-            aiProvider: currentAI.provider, aiModel: currentAI.model,
-          });
-
-          const res = await fetch(`/api/translate/${selectedDocId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ targetLanguage: lang, provider: currentAI.provider, model: currentAI.model }),
-          });
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            updateMessage(asstId, { status: 'error', content: err.error || 'Falha ao iniciar tradução' });
-            return;
-          }
-          const data = await res.json();
-          updateMessage(asstId, {
-            status: 'success',
-            content: `Tradução para ${args} iniciada. O acompanhamento, revisão e aplicação ficam na página de resultado.`,
-            jobId: data.jobId,
-            resultHref: `/translations/${data.jobId}`,
-          });
+          await runBookTranslation();
           return;
         }
 
@@ -706,42 +883,27 @@ export default function ProjectAgentPage() {
             appendMessage({ role: 'system', content: 'Descreva o ajuste desejado.', status: 'error' });
             return;
           }
-          await runAdjustPipeline(args);
+          await runAdjustPipeline(buildBookAdjustInstructions(args));
           return;
         }
 
         case '/revisar': {
-          if (!currentAI) { appendMessage({ role: 'system', content: 'Selecione um provedor de IA no topo.', status: 'error' }); return; }
+          await runBookReview();
+          return;
+        }
 
-          const asstId = appendMessage({
-            role: 'assistant', command: cmd, status: 'running',
-            content: 'Pesquisando mudanças factuais e evidências recentes na web...',
-            aiProvider: currentAI.provider, aiModel: currentAI.model,
-          });
+        case '/aprimorar': {
+          await runAdjustPipeline(BOOK_IMPROVE_INSTRUCTIONS, '/aprimorar', { useGrounding: true });
+          return;
+        }
 
-          const res = await fetch(`/api/norms-update`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              documentId: selectedDocId,
-              provider: currentAI.provider,
-              model: currentAI.model,
-              reviewScope: 'currentness',
-              researchDepth: 'deep'
-            }),
-          });
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            updateMessage(asstId, { status: 'error', content: err.error || 'Falha ao iniciar revisão' });
-            return;
-          }
-          const data = await res.json();
-          updateMessage(asstId, {
-            status: 'success',
-            content: 'Revisão aprofundada de atualidade iniciada.',
-            jobId: data.jobId,
-            resultHref: `/norms-update/${data.jobId}`,
-          });
+        case '/finalizar': {
+          await runAdjustPipeline(BOOK_FINALIZE_INSTRUCTIONS, '/finalizar');
+          return;
+        }
+
+        case '/livro': {
+          await handleBookWorkflow(args);
           return;
         }
 
@@ -802,13 +964,7 @@ export default function ProjectAgentPage() {
     }
   };
 
-  const allCommands = useMemo(() => {
-    const custom = customSkillsToSlashCommands(settings?.skills?.customSkills).map((c) => ({
-      ...c,
-      icon: <Terminal className="h-4 w-4" />,
-    }));
-    return [...COMMANDS, ...custom];
-  }, [settings?.skills?.customSkills]);
+  const allCommands = COMMANDS;
 
   const filteredCommands = useMemo(() => {
     if (!input.startsWith('/')) return [];
@@ -1024,7 +1180,7 @@ export default function ProjectAgentPage() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Pergunte algo sobre o documento, ou use /todos, /ajustar, /traduzir..."
+                  placeholder="Converse livremente ou use /traduzir, /revisar, /ajustar, /aprimorar, /finalizar, /livro..."
                   rows={1}
                   disabled={sending}
                   className="flex-1 bg-transparent text-white placeholder:text-gray-600 text-sm resize-none outline-none py-1.5 max-h-32"
@@ -1096,12 +1252,12 @@ function WelcomeBlock({ onPick }: { onPick: (cmd: string) => void }) {
       <div>
         <h2 className="text-xl font-semibold text-white mb-1">Como posso ajudar com este documento?</h2>
         <p className="text-sm text-gray-400 max-w-md mx-auto leading-relaxed">
-          Faça uma <strong className="text-cyan-400">pergunta</strong> sobre o documento (eu respondo aqui sem mexer no texto)
-          ou use um <code className="text-red-400">/comando</code> para <strong className="text-red-400">editar</strong> e gerar uma nova versão.
+          Converse livremente ou use um <code className="text-red-400">/comando</code> editorial para gerar uma nova versão.
+          Use <code className="text-red-400">/livro</code> para executar os cinco passos com aprovação entre eles.
         </p>
       </div>
       <div className="grid grid-cols-2 gap-2 max-w-lg mx-auto">
-        {COMMANDS.filter((c) => c.name !== '/limpar').slice(0, 5).map((c) => (
+        {COMMANDS.map((c) => (
           <button
             key={c.name}
             onClick={() => onPick(c.name)}

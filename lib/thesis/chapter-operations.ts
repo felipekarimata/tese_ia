@@ -22,6 +22,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
+import { BOOK_TRANSLATION_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
+import { sanitizeEditorialText } from '@/lib/book-workflow/output';
 
 export type ChapterOperation = 'improve' | 'translate' | 'adjust' | 'adapt' | 'update';
 
@@ -323,7 +325,8 @@ export async function executeTranslateOperation(
   provider: AIProvider,
   model: string,
   maxPages?: number,
-  references: ReferenceInput[] = []
+  references: ReferenceInput[] = [],
+  editorialProfile?: 'book-ptbr'
 ): Promise<string> {
   try {
     console.log(`[CHAPTER-TRANSLATE] Starting job ${jobId} for version ${versionId}`);
@@ -407,7 +410,8 @@ export async function executeTranslateOperation(
           sourceLanguage,
           provider as 'openai' | 'gemini' | 'grok' | 'anthropic',
           model,
-          apiKey
+          apiKey,
+          editorialProfile
         );
 
         allSuggestions.push(...suggestions);
@@ -454,7 +458,7 @@ export async function executeTranslateOperation(
             type: 'translation',
             originalText: s.originalText || '',
             improvedText: s.translatedText || '',
-            reason: `Translated to ${targetLanguage}`,
+            reason: s.report || `Translated to ${targetLanguage}`,
             confidence: 0.95,
             chapterTitle: s.sectionTitle || ''
           }))
@@ -558,7 +562,8 @@ export async function executeAdjustOperation(
   model: string,
   references: ReferenceInput[] = [],
   useGrounding: boolean = false,
-  contextVersionIds: string[] = []
+  contextVersionIds: string[] = [],
+  editorialProfile?: 'book'
 ): Promise<string> {
   try {
     console.log(`[CHAPTER-ADJUST] Starting job ${jobId} for version ${versionId}`);
@@ -631,7 +636,8 @@ export async function executeAdjustOperation(
       model,
       apiKey,
       useGrounding,
-      () => throwIfCancelled(jobId)
+      () => throwIfCancelled(jobId),
+      editorialProfile === 'book' ? 'book' : 'direct'
     );
 
     await updateOperationJob(jobId, { progress: 70 });
@@ -1215,13 +1221,17 @@ async function generateTranslationSuggestions(
   sourceLanguage: string | undefined,
   provider: 'openai' | 'gemini' | 'grok' | 'anthropic',
   model: string,
-  apiKey: string
+  apiKey: string,
+  editorialProfile?: 'book-ptbr'
 ): Promise<any[]> {
   const prompt = `You are a professional translator. Translate the following text ${sourceLanguage ? `from ${sourceLanguage}` : ''} to ${targetLanguage}.
+
+${editorialProfile === 'book-ptbr' ? BOOK_TRANSLATION_INSTRUCTIONS : ''}
 
 For each paragraph, provide:
 - originalText: the exact original text (unchanged)
 - translatedText: the professional translation in ${targetLanguage}
+- report: glossary decisions, original direct quotations that must become footnotes, and any [VERIFICAR] item; never place this material inside translatedText
 
 Maintain the same tone, style, and technical accuracy. Preserve formatting, numbers, and technical terms appropriately.
 
@@ -1233,7 +1243,8 @@ Respond with ONLY a JSON object in this format:
   "translations": [
     {
       "originalText": "...",
-      "translatedText": "..."
+      "translatedText": "...",
+      "report": "..."
     }
   ]
 }`;
@@ -1308,7 +1319,8 @@ Respond with ONLY a JSON object in this format:
     const translations: any[] = (data.translations || []).map((t: any) => ({
       id: randomUUID(),
       originalText: t.originalText || '',
-      translatedText: t.translatedText || '',
+      translatedText: sanitizeEditorialText(t.translatedText),
+      report: typeof t.report === 'string' ? t.report.trim() : '',
       sectionTitle
     }));
 

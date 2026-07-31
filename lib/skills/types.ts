@@ -29,7 +29,7 @@ export type SkillsSettings = {
   customSkills: CustomSkill[];
 };
 
-export type SkillContext = 'direct' | 'todos';
+export type SkillContext = 'direct' | 'todos' | 'book';
 
 export type SkillPromptVars = {
   args?: string;
@@ -52,6 +52,9 @@ export const RESERVED_COMMANDS = new Set([
   '/adaptar',
   '/ajustar',
   '/revisar',
+  '/aprimorar',
+  '/finalizar',
+  '/livro',
 ]);
 
 export const DEFAULT_SKILLS_SETTINGS: SkillsSettings = {

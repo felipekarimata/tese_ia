@@ -156,9 +156,9 @@ export function getDefaultPromptBuilder(key: SkillKey): DefaultPromptBuilder {
 
 export function resolveSkillKeyForContext(
   baseKey: SkillKey,
-  context: 'direct' | 'todos'
+  context: 'direct' | 'todos' | 'book'
 ): SkillKey {
-  if (context === 'direct') return baseKey;
+  if (context === 'direct' || context === 'book') return baseKey;
   if (baseKey === 'translate') return 'todos:translate';
   if (baseKey === 'review') return 'todos:review';
   if (baseKey === 'adjust') return 'adjust';

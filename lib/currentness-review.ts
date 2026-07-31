@@ -9,6 +9,8 @@ import {
   type ResearchSource
 } from '@/lib/ai/research';
 import type { NormReference, NormStatus } from '@/lib/norms-update/types';
+import { BOOK_RESEARCH_DOMAINS } from '@/lib/book-workflow/prompts';
+import { sanitizeEditorialText } from '@/lib/book-workflow/output';
 
 export type ReviewScope = 'norms' | 'currentness';
 
@@ -242,7 +244,8 @@ export async function reviewDocumentCurrentness(
       context: segment.text,
       preferredDomains: [
         'doi.org', 'crossref.org', 'openalex.org', 'pubmed.ncbi.nlm.nih.gov',
-        'oecd.org', 'worldbank.org', 'europa.eu', 'gov.br', 'planalto.gov.br'
+        'oecd.org', 'worldbank.org', 'europa.eu', 'gov.br', 'planalto.gov.br',
+        ...BOOK_RESEARCH_DOMAINS
       ]
     });
 
@@ -271,6 +274,9 @@ CRITÉRIOS
 - "new_evidence": a passagem continua parcialmente correta, mas evidência posterior importante muda a conclusão ou exige complemento.
 - "uncertain": há sinal relevante, mas evidência insuficiente ou conflitante; não proponha texto substituto.
 - Para outdated, contradicted ou new_evidence, exija uma fonte oficial conclusiva ou duas fontes independentes.
+- Não apague a análise histórica. Quando algo mudou, recontextualize com fórmulas como "à época, vigorava" ou "até [ano]", preservando o arco passado-presente-futuro.
+- Para normas, respeite: texto legal oficial > tribunal/órgão oficial > organismo internacional > doutrina revisada > consultoria. Quando doutrina for tratada como letra da lei, registre [DISTINÇÃO: texto x doutrina] no motivo.
+- Confira também a atualidade das séries econômicas citadas. Se a tese central depender de norma revogada ou dado hoje contrariado, registre [RISCO] ou [RISCO ECONÔMICO] no motivo.
 - Informe o paragraphIndex exibido em [P123]. Copie o parágrafo original completo e de forma exata, com pelo menos 30 caracteres.
 - suggestedText deve ser a versão integral do mesmo parágrafo, já atualizada; não devolva somente a frase alterada.
 - Cada conclusão deve citar apenas IDs da lista abaixo.
@@ -357,7 +363,7 @@ Retorne apenas JSON válido:
         continue;
       }
 
-      const suggestedText = typeof raw.suggestedText === 'string' ? raw.suggestedText.trim() : '';
+      const suggestedText = sanitizeEditorialText(raw.suggestedText);
       if (
         verdict !== 'uncertain'
         && (!suggestedText || normalizeReviewText(suggestedText) === normalizeReviewText(anchor.text))

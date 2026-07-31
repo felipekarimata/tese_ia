@@ -7,7 +7,7 @@ import type {
   SkillPromptVars,
   SkillsSettings,
 } from './types';
-import { DEFAULT_SKILLS_SETTINGS } from './types';
+import { DEFAULT_SKILLS_SETTINGS, RESERVED_COMMANDS } from './types';
 
 function getSkillsSettings(): SkillsSettings {
   return state.settings.skills ?? DEFAULT_SKILLS_SETTINGS;
@@ -33,7 +33,9 @@ export function resolveSkillPrompt(
 ): string {
   const skills = settings ?? getSkillsSettings();
   const resolvedKey = resolveSkillKeyForContext(key, context);
-  const override = skills.promptOverrides[resolvedKey] ?? skills.promptOverrides[key];
+  const override = context === 'book'
+    ? undefined
+    : skills.promptOverrides[resolvedKey] ?? skills.promptOverrides[key];
   const builder = getDefaultPromptBuilder(resolvedKey);
 
   if (override && override.trim()) {
@@ -72,7 +74,7 @@ export function validateCustomSkillName(name: string, existing: CustomSkill[], e
   if (!/^\/[a-z0-9-]+$/.test(name)) return 'Use apenas letras minúsculas, números e hífens';
   if (name.length < 2) return 'Nome muito curto';
   const lower = name.toLowerCase();
-  if (['3', 'limpar', 'todos', 'comparar'].some((r) => lower === `/${r}`)) {
+  if (RESERVED_COMMANDS.has(lower)) {
     return 'Nome reservado pelo sistema';
   }
   if (existing.some((s) => s.id !== excludeId && s.name.toLowerCase() === lower)) {

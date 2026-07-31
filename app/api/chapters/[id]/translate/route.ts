@@ -29,7 +29,8 @@ export async function POST(
       provider = 'openai',
       model = 'gpt-5.6',
       maxPages,
-      references = []
+      references = [],
+      editorialProfile
     }: {
       versionId: string;
       targetLanguage: SupportedLanguage;
@@ -38,6 +39,7 @@ export async function POST(
       model?: string;
       maxPages?: number;
       references?: ReferenceInput[];
+      editorialProfile?: 'book-ptbr';
     } = body;
 
     if (!versionId || !targetLanguage) {
@@ -87,7 +89,8 @@ export async function POST(
       provider,
       model,
       maxPages,
-      references
+      references,
+      editorialProfile
     ).catch(err => {
       console.error('[CHAPTER-TRANSLATE-API] Background error:', err);
     });
