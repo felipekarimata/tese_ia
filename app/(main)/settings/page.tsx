@@ -203,9 +203,9 @@ export default function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Multi-IA `/3`</CardTitle>
+          <CardTitle>`/todos` — 3 IAs + juiz</CardTitle>
           <CardDescription>
-            Defina os provedores, modelos e juiz usados quando o comando nao especificar escolhas.
+            Defina os três modelos candidatos e o modelo juiz usados pelo comando `/todos`.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -217,7 +217,7 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle>Skills / Comandos</CardTitle>
           <CardDescription>
-            Cada skill é um prompt enviado ao LLM. Edite os padrões ou crie novas skills.
+            Consulte os comandos ativos e personalize os prompts compatíveis ou crie novas skills.
           </CardDescription>
         </CardHeader>
         <CardContent>

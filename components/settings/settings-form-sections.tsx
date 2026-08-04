@@ -270,54 +270,55 @@ export function Multi3DefaultsSection({
 }: Multi3DefaultsSectionProps) {
   const config = normalizeMulti3Settings(settings?.multi3, settings?.models);
 
-  const toggleProvider = (provider: AIProviderKey) => {
-    const selected = config.defaultProviders.includes(provider);
-    if (selected && config.defaultProviders.length <= 2) return;
-    updateMulti3({
-      defaultProviders: selected
-        ? config.defaultProviders.filter((item) => item !== provider)
-        : [...config.defaultProviders, provider],
-    });
+  const updateCandidateProvider = (index: number, provider: AIProviderKey) => {
+    const next = [...config.defaultProviders];
+    const existingIndex = next.indexOf(provider);
+    if (existingIndex >= 0 && existingIndex !== index) {
+      [next[index], next[existingIndex]] = [next[existingIndex], next[index]];
+    } else {
+      next[index] = provider;
+    }
+    updateMulti3({ defaultProviders: next });
   };
 
   return (
     <div className={cn('space-y-4', compact && 'space-y-3')}>
       <div>
         <p className={cn('font-semibold text-white', compact ? 'text-sm' : 'text-base')}>
-          Padroes do Multi-IA `/3`
+          `/todos` — 3 IAs + juiz
         </p>
         <p className="text-xs text-gray-500 mt-1">
-          Usados por `/3`, `/revisar /3` e `/todos /3` quando o comando nao informa provedores.
+          Cada candidato executa traduzir, revisar, aprimorar e finalizar. O juiz compara os três resultados.
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {MULTI3_PROVIDERS.map((provider) => {
+      <div className="grid gap-3 sm:grid-cols-3">
+        {config.defaultProviders.map((provider, index) => {
           const enabledModels = settings?.models?.[provider] ?? [];
           const currentModel = config.defaultModels[provider] || '';
           const modelOptions = Array.from(new Set([
             ...(currentModel ? [currentModel] : []),
             ...enabledModels,
           ]));
-          const selected = config.defaultProviders.includes(provider);
-          const cannotRemove = selected && config.defaultProviders.length <= 2;
 
           return (
-            <div key={provider} className="rounded-lg border border-white/10 p-3 space-y-2">
-              <label className="flex items-center gap-2 text-sm font-medium text-white cursor-pointer">
-                <input
-                  id={`${idPrefix}multi3-provider-${provider}`}
-                  type="checkbox"
-                  checked={selected}
-                  disabled={cannotRemove}
-                  onChange={() => toggleProvider(provider)}
-                  className="rounded"
-                />
-                {PROVIDER_LABELS[provider]}
-                {config.judgeProvider === provider && (
-                  <span className="text-[10px] text-yellow-400">juiz</span>
-                )}
-              </label>
+            <div key={`${index}-${provider}`} className="rounded-lg border border-white/10 p-3 space-y-2">
+              <Label className="text-xs text-gray-400">Candidato {index + 1}</Label>
+              <Select
+                value={provider}
+                onValueChange={(value) => updateCandidateProvider(index, value as AIProviderKey)}
+              >
+                <SelectTrigger id={`${idPrefix}todos-provider-${index}`} className="h-8 text-xs bg-white/5 border-white/10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MULTI3_PROVIDERS.map((candidateProvider) => (
+                    <SelectItem key={candidateProvider} value={candidateProvider}>
+                      {PROVIDER_LABELS[candidateProvider]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Select
                 value={currentModel}
                 onValueChange={(model) => updateMulti3({
@@ -343,6 +344,10 @@ export function Multi3DefaultsSection({
         })}
       </div>
 
+      <p className="text-[11px] text-gray-600">
+        Ao escolher um provedor que já ocupa outro candidato, as duas posições são trocadas.
+      </p>
+
       <div className="space-y-1.5 max-w-sm">
         <Label className="text-xs text-gray-400">Provedor juiz</Label>
         <Select
@@ -363,7 +368,7 @@ export function Multi3DefaultsSection({
       </div>
 
       <p className="text-xs text-gray-500">
-        Comando padrao: {config.defaultProviders
+        Candidatos: {config.defaultProviders
           .map((provider) => `${provider}/${config.defaultModels[provider]}`)
           .join(' | ')}. Juiz: {config.judgeProvider}/{config.defaultModels[config.judgeProvider]}.
       </p>

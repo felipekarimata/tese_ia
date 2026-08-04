@@ -3,9 +3,17 @@ import { DEFAULT_MODELS } from '@/lib/ai/model-registry';
 import type { Multi3Settings } from './types';
 
 export const MULTI3_PROVIDERS: AIProvider[] = ['openai', 'gemini', 'anthropic', 'grok'];
+export const TODOS_CANDIDATE_COUNT = 3;
+
+export function isValidTodosProviderSelection(providers: unknown): providers is AIProvider[] {
+  return Array.isArray(providers)
+    && providers.length === TODOS_CANDIDATE_COUNT
+    && providers.every((provider): provider is AIProvider => MULTI3_PROVIDERS.includes(provider))
+    && new Set(providers).size === TODOS_CANDIDATE_COUNT;
+}
 
 export const DEFAULT_MULTI3_SETTINGS: Multi3Settings = {
-  defaultProviders: [...MULTI3_PROVIDERS],
+  defaultProviders: ['openai', 'gemini', 'anthropic'],
   defaultModels: { ...DEFAULT_MODELS },
   judgeProvider: 'gemini',
 };
@@ -87,7 +95,7 @@ export function normalizeMulti3Settings(
           MULTI3_PROVIDERS.includes(provider) && list.indexOf(provider) === index
       )
     : [];
-  const defaultProviders = requestedProviders.length >= 2
+  const defaultProviders = requestedProviders.length === TODOS_CANDIDATE_COUNT
     ? requestedProviders
     : [...DEFAULT_MULTI3_SETTINGS.defaultProviders];
 

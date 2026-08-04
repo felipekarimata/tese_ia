@@ -8,9 +8,8 @@ import { randomUUID } from 'crypto';
 import { supabase } from '@/lib/supabase';
 import { persistDocumentVersion } from '@/lib/document-versioning';
 import { runTransformWithMode } from '@/lib/document-processing/run-transform';
-import { buildDocumentContext } from '@/lib/document-processing/context';
 import { translateDocx } from '@/lib/translation/docx-translator';
-import { analyzeDocumentForAdaptation } from '@/lib/adapt/processor';
+import { analyzeDocumentForAdjustments } from '@/lib/adjust/processor';
 import { applySuggestionsToDocx, type ApplyDocxSuggestion } from '@/lib/translation/docx-translator';
 import { extractDocumentStructure } from '@/lib/improvement/document-analyzer';
 import { detectNormsInDocument } from '@/lib/norms-update/norm-detector';
@@ -19,14 +18,12 @@ import { applyNormUpdatesToDocx } from '@/lib/norms-update/apply-docx';
 import { AIProvider } from '@/lib/ai/types';
 import { SupportedLanguage } from '@/lib/translation/types';
 import { getApiKey } from '@/lib/multi-ai/chapter-helpers';
+import { BOOK_FINALIZE_INSTRUCTIONS, BOOK_IMPROVE_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
 
 export type DocumentTodosConfig = {
   provider: AIProvider;
   model: string;
   targetLanguage: SupportedLanguage;
-  adaptStyle: 'academic' | 'professional' | 'simplified' | 'custom';
-  targetAudience?: string;
-  multi3Meta?: Record<string, unknown>;
   deferPersist?: boolean;
 };
 
@@ -44,6 +41,48 @@ async function downloadDoc(filePath: string): Promise<string> {
   return tmp;
 }
 
+async function runEditorialAdjustStep(
+  inputPath: string,
+  outputPath: string,
+  instructions: string,
+  config: DocumentTodosConfig
+): Promise<void> {
+  const transform = await runTransformWithMode(inputPath, outputPath, {
+    task: 'adjust',
+    provider: config.provider,
+    model: config.model,
+    adjustInstructions: instructions,
+    skillContext: 'todos',
+  });
+
+  if (transform.runBatches) {
+    const suggestions = await analyzeDocumentForAdjustments(
+      inputPath,
+      instructions,
+      5,
+      config.provider,
+      config.model,
+      getApiKey(config.provider),
+      false
+    );
+    if (suggestions.length === 0) {
+      await fs.copyFile(inputPath, outputPath);
+      return;
+    }
+    const docxSuggestions: ApplyDocxSuggestion[] = suggestions.map((suggestion: any) => ({
+      id: suggestion.id,
+      originalText: suggestion.originalText || '',
+      improvedText: suggestion.adjustedText || suggestion.improvedText || '',
+    }));
+    await applySuggestionsToDocx(inputPath, outputPath, docxSuggestions);
+    return;
+  }
+
+  if (!transform.usedWhole) {
+    throw new Error(transform.wholeError || 'Falha no processamento editorial');
+  }
+}
+
 export async function runTodosPipeline(
   documentId: string,
   doc: { title: string; file_path: string; project_id?: string | null },
@@ -51,7 +90,7 @@ export async function runTodosPipeline(
 ): Promise<DocumentTodosResult> {
   const tempPaths: string[] = [];
   const stepPaths: string[] = [];
-  let normsPath = '';
+  let finalPath = '';
   let currentPath = await downloadDoc(doc.file_path);
   tempPaths.push(currentPath);
 
@@ -90,59 +129,8 @@ export async function runTodosPipeline(
       });
     }
 
-    // Adapt
-    const adaptedPath = path.join(os.tmpdir(), `${randomUUID()}_ad.docx`);
-    tempPaths.push(adaptedPath);
-    const adTransform = await runTransformWithMode(currentPath, adaptedPath, {
-      task: 'adapt',
-      provider: config.provider,
-      model: config.model,
-      adaptStyle: config.adaptStyle,
-      targetAudience: config.targetAudience,
-      skillContext: 'todos',
-    });
-    if (adTransform.runBatches) {
-      const suggestions = await analyzeDocumentForAdaptation(
-        currentPath,
-        config.adaptStyle,
-        config.targetAudience,
-        config.provider,
-        config.model,
-        getApiKey(config.provider),
-        undefined,
-        undefined,
-        undefined,
-        'todos'
-      );
-      if (suggestions.length === 0) {
-        await fs.copyFile(currentPath, adaptedPath);
-      } else {
-        const docxSuggestions: ApplyDocxSuggestion[] = suggestions.map((s: any) => ({
-          id: s.id,
-          originalText: s.originalText || '',
-          improvedText: s.adaptedText || '',
-        }));
-        await applySuggestionsToDocx(currentPath, adaptedPath, docxSuggestions);
-      }
-    } else if (!adTransform.usedWhole) {
-      throw new Error(adTransform.wholeError || 'adapt failed');
-    }
-    currentPath = adaptedPath;
-    stepPaths.push(adaptedPath);
-
-    if (!config.deferPersist) {
-      const buf = await fs.readFile(adaptedPath);
-      await persistDocumentVersion({
-        documentId,
-        title: doc.title,
-        projectId: doc.project_id,
-        buffer: buf,
-        operation: 'adapt',
-      });
-    }
-
-    // Norms
-    normsPath = path.join(os.tmpdir(), `${randomUUID()}_nm.docx`);
+    // Review
+    const normsPath = path.join(os.tmpdir(), `${randomUUID()}_nm.docx`);
     tempPaths.push(normsPath);
     const { structure, paragraphs } = await extractDocumentStructure(currentPath);
     const paragraphsWithContext = paragraphs
@@ -184,13 +172,60 @@ export async function runTodosPipeline(
       });
     }
 
-    const { paragraphs: finalP } = await extractDocumentStructure(normsPath);
+    // Improve
+    currentPath = normsPath;
+    const improvedPath = path.join(os.tmpdir(), `${randomUUID()}_im.docx`);
+    tempPaths.push(improvedPath);
+    await runEditorialAdjustStep(
+      currentPath,
+      improvedPath,
+      BOOK_IMPROVE_INSTRUCTIONS,
+      config
+    );
+    stepPaths.push(improvedPath);
+
+    if (!config.deferPersist) {
+      const buf = await fs.readFile(improvedPath);
+      await persistDocumentVersion({
+        documentId,
+        title: doc.title,
+        projectId: doc.project_id,
+        buffer: buf,
+        operation: 'improve',
+      });
+    }
+
+    // Finalize
+    currentPath = improvedPath;
+    const finalizedPath = path.join(os.tmpdir(), `${randomUUID()}_fn.docx`);
+    tempPaths.push(finalizedPath);
+    await runEditorialAdjustStep(
+      currentPath,
+      finalizedPath,
+      BOOK_FINALIZE_INSTRUCTIONS,
+      config
+    );
+    stepPaths.push(finalizedPath);
+
+    if (!config.deferPersist) {
+      const buf = await fs.readFile(finalizedPath);
+      await persistDocumentVersion({
+        documentId,
+        title: doc.title,
+        projectId: doc.project_id,
+        buffer: buf,
+        operation: 'finalize',
+      });
+    }
+
+    finalPath = finalizedPath;
+    const { paragraphs: finalP } = await extractDocumentStructure(finalPath);
     const previewText = finalP.map((p) => p.text).join('\n\n').slice(0, 8000);
 
-    return { previewText, stepPaths, finalPath: normsPath };
+    return { previewText, stepPaths, finalPath };
   } finally {
     const toDelete = config.deferPersist
-      ? tempPaths.filter((p) => p !== normsPath)
+      ? tempPaths.filter((p) => p !== finalPath)
       : tempPaths;
     await Promise.all(toDelete.map((p) => fs.unlink(p).catch(() => {})));
   }

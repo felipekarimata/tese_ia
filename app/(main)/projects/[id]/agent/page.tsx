@@ -117,7 +117,7 @@ const COMMAND_ICONS: Record<BookCommandName, React.ReactNode> = {
   '/ajustar': <Sliders className="h-4 w-4" />,
   '/aprimorar': <Wand2 className="h-4 w-4" />,
   '/finalizar': <BookOpen className="h-4 w-4" />,
-  '/livro': <Sparkles className="h-4 w-4" />,
+  '/todos': <Sparkles className="h-4 w-4" />,
 };
 
 const COMMAND_COLORS: Record<BookCommandName, string> = {
@@ -126,7 +126,7 @@ const COMMAND_COLORS: Record<BookCommandName, string> = {
   '/ajustar': 'text-orange-400',
   '/aprimorar': 'text-green-400',
   '/finalizar': 'text-blue-400',
-  '/livro': 'text-red-400',
+  '/todos': 'text-red-400',
 };
 
 const COMMANDS: SlashCommand[] = BOOK_COMMAND_DEFINITIONS.map((command) => ({
@@ -716,7 +716,7 @@ export default function ProjectAgentPage() {
         role: 'assistant',
         content: `Multi-IA iniciada (${modelSummary})`,
         status: 'running',
-        command: '/3',
+        command: '/todos',
       });
       try {
         const apiBody = buildMulti3ApiBody(multi3Start, selectedDocId, models);
@@ -906,11 +906,6 @@ export default function ProjectAgentPage() {
 
         case '/finalizar': {
           await runAdjustPipeline(BOOK_FINALIZE_INSTRUCTIONS, '/finalizar');
-          return;
-        }
-
-        case '/livro': {
-          await handleBookWorkflow(args);
           return;
         }
 
@@ -1187,7 +1182,7 @@ export default function ProjectAgentPage() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Converse livremente ou use /traduzir, /revisar, /ajustar, /aprimorar, /finalizar, /livro..."
+                  placeholder="Converse livremente ou use /traduzir, /revisar, /ajustar, /aprimorar, /finalizar, /todos..."
                   rows={1}
                   disabled={sending}
                   className="flex-1 bg-transparent text-white placeholder:text-gray-600 text-sm resize-none outline-none py-1.5 max-h-32"
@@ -1261,7 +1256,7 @@ function WelcomeBlock({ onPick }: { onPick: (cmd: string) => void }) {
         <h2 className="text-xl font-semibold text-white mb-1">Como posso ajudar com este documento?</h2>
         <p className="text-sm text-gray-400 max-w-md mx-auto leading-relaxed">
           Converse livremente ou use um <code className="text-red-400">/comando</code> editorial para gerar uma nova versão.
-          Use <code className="text-red-400">/livro</code> para executar os cinco passos com aprovação entre eles.
+          Use <code className="text-red-400">/todos</code> para executar quatro etapas com três IAs e um juiz.
         </p>
       </div>
       <div className="grid grid-cols-2 gap-2 max-w-lg mx-auto">

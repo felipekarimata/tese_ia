@@ -186,7 +186,7 @@ export function Multi3ComparePanel({
                       </div>
                       {candidate.versionIds && candidate.versionIds.length > 0 && (
                         <p className="text-xs text-gray-500">
-                          {candidate.versionIds.length} versão(ões) no branch /todos
+                          {candidate.versionIds.length} versão(ões) no fluxo /todos
                         </p>
                       )}
                       {session.command === '/todos' && candidate.provider === 'grok' && (

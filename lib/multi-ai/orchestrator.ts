@@ -22,7 +22,7 @@ import {
 import { AIProvider } from '@/lib/ai/types';
 import { multi3CancelCheck, isCancelledError } from './cancel';
 import { getMulti3FailureMessage } from './errors';
-import { sanitizeMulti3Models } from './models';
+import { isValidTodosProviderSelection, sanitizeMulti3Models } from './models';
 import { CANCELLATION_MARKER } from '@/lib/job-cancellation';
 import {
   downloadChapterVersionFile,
@@ -32,7 +32,6 @@ import {
   extractVersionTextPreview,
   getApiKey,
 } from './chapter-helpers';
-import { runTodosPipeline } from '@/lib/todos/run-todos-pipeline';
 import { runTransformWithMode } from '@/lib/document-processing/run-transform';
 import { buildDocumentContext } from '@/lib/document-processing/context';
 import { translateDocx } from '@/lib/translation/docx-translator';
@@ -45,6 +44,7 @@ import { verifyMultipleNorms } from '@/lib/norms-update/norm-verifier';
 import { applyNormUpdatesToDocx } from '@/lib/norms-update/apply-docx';
 import { chatWithAgent } from '@/lib/ai/agent-chat';
 import { supabase } from '@/lib/supabase';
+import { BOOK_FINALIZE_INSTRUCTIONS, BOOK_IMPROVE_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
 
 const STYLE_MAP: Record<string, 'academic' | 'professional' | 'simplified'> = {
   acadêmico: 'academic', academico: 'academic', academic: 'academic',
@@ -72,6 +72,9 @@ export async function startChapterMulti3(
   chapterId: string,
   req: Multi3StartRequest
 ): Promise<Multi3Session> {
+  if (req.command !== '/todos' || !isValidTodosProviderSelection(req.providers)) {
+    throw new Error('O comando /todos exige exatamente 3 provedores diferentes.');
+  }
   const judgeProvider = req.judgeProvider || DEFAULT_JUDGE_PROVIDER;
   const modelProviders = Array.from(new Set([...req.providers, judgeProvider]));
   const models = sanitizeMulti3Models(modelProviders, req.models || {});
@@ -253,7 +256,7 @@ async function runSingleCandidate(
   try {
     switch (req.command) {
       case '/todos':
-        return await runTodosCandidate(chapterId, req.versionId, provider, model, meta, branchIndex);
+        return await runTodosCandidate(chapterId, req.versionId, provider, model, meta, branchIndex, sessionId);
       case '/perguntar':
         return await runPerguntarCandidate(chapterId, req.versionId, provider, model, req.args || '', branchIndex, sessionId);
       case '/ajustar':
@@ -293,43 +296,88 @@ async function runTodosCandidate(
   provider: AIProvider,
   model: string,
   meta: Record<string, unknown>,
-  branchIndex: number
+  branchIndex: number,
+  sessionId: string
 ): Promise<Multi3Candidate> {
-  const result = await runTodosPipeline(chapterId, {
+  const versionIds: string[] = [];
+  const stepMeta = (step: string) => ({
+    ...meta,
+    autoAppliedBy: '/todos',
+    multi3Step: step,
+  });
+  const markStep = async (progress: number, progressLabel: string) => {
+    await patchMulti3Candidate(sessionId, branchIndex, {
+      provider,
+      model,
+      status: 'running',
+      branchIndex,
+      progress,
+      progressLabel,
+    });
+  };
+
+  await markStep(10, 'Traduzindo para português');
+  const translated = await runTranslateCandidate(
+    chapterId,
+    versionId,
     provider,
     model,
-    targetLanguage: 'pt',
-    adaptStyle: 'simplified',
-    multi3Meta: meta,
-    setAsCurrent: false,
-  });
+    'pt',
+    stepMeta('translate'),
+    sessionId
+  );
+  if (!translated.versionId) throw new Error('/todos: tradução não gerou versão');
+  versionIds.push(translated.versionId);
 
-  const { data: ver } = await supabase
-    .from('chapter_versions')
-    .select('file_path')
-    .eq('id', result.finalVersionId)
-    .single();
+  await markStep(35, 'Revisando vigência, fatos e dados');
+  const reviewed = await runRevisarCandidate(
+    chapterId,
+    translated.versionId,
+    provider,
+    model,
+    stepMeta('review'),
+    sessionId
+  );
+  if (!reviewed.versionId) throw new Error('/todos: revisão não gerou versão');
+  versionIds.push(reviewed.versionId);
 
-  let preview = '';
-  if (ver?.file_path) {
-    const tmp = await downloadChapterVersionFile(result.finalVersionId, ver.file_path, 'preview');
-    try {
-      preview = await extractVersionTextPreview(tmp);
-    } finally {
-      await fs.unlink(tmp).catch(() => {});
-    }
-  }
+  await markStep(58, 'Aprimorando conteúdo e fontes');
+  const improved = await runAdjustCandidate(
+    chapterId,
+    reviewed.versionId,
+    provider,
+    model,
+    BOOK_IMPROVE_INSTRUCTIONS,
+    stepMeta('improve'),
+    sessionId,
+    'improve'
+  );
+  if (!improved.versionId) throw new Error('/todos: aprimoramento não gerou versão');
+  versionIds.push(improved.versionId);
+
+  await markStep(82, 'Finalizando coesão e registro editorial');
+  const finalized = await runAdjustCandidate(
+    chapterId,
+    improved.versionId,
+    provider,
+    model,
+    BOOK_FINALIZE_INSTRUCTIONS,
+    stepMeta('finalize'),
+    sessionId
+  );
+  if (!finalized.versionId) throw new Error('/todos: finalização não gerou versão');
+  versionIds.push(finalized.versionId);
 
   return {
     provider,
     model,
     status: 'completed',
-    versionId: result.finalVersionId,
-    versionIds: result.versionIds,
+    versionId: finalized.versionId,
+    versionIds,
     branchIndex,
-    text: preview,
+    text: finalized.text,
     progress: 100,
-    progressLabel: '/todos concluído',
+    progressLabel: '/todos concluído: traduzir → revisar → aprimorar → finalizar',
   };
 }
 
@@ -390,7 +438,8 @@ async function runAdjustCandidate(
   model: string,
   instructions: string,
   meta: Record<string, unknown>,
-  sessionId: string
+  sessionId: string,
+  operation: 'adjust' | 'improve' = 'adjust'
 ): Promise<Multi3Candidate> {
   const cancelCheck = multi3CancelCheck(sessionId);
   const { data: ver } = await supabase.from('chapter_versions').select('file_path').eq('id', versionId).single();
@@ -430,7 +479,7 @@ async function runAdjustCandidate(
       chapterId,
       versionId,
       outputPath,
-      'adjust',
+      operation,
       { ...meta, instructions, processingMode: transform.processingMode },
       false
     );

@@ -28,7 +28,7 @@ import { extractDocumentStructure } from '@/lib/improvement/document-analyzer';
 import { runTodosPipeline as runDocumentTodosPipeline } from '@/lib/todos/run-document-todos-pipeline';
 import { multi3CancelCheck, isCancelledError } from './cancel';
 import { getMulti3FailureMessage } from './errors';
-import { sanitizeMulti3Models } from './models';
+import { isValidTodosProviderSelection, sanitizeMulti3Models } from './models';
 import { CANCELLATION_MARKER } from '@/lib/job-cancellation';
 
 async function downloadDocumentFile(documentId: string, filePath: string): Promise<string> {
@@ -43,6 +43,9 @@ export async function startDocumentMulti3(
   documentId: string,
   req: Multi3StartRequest
 ): Promise<Multi3Session> {
+  if (req.command !== '/todos' || !isValidTodosProviderSelection(req.providers)) {
+    throw new Error('O comando /todos exige exatamente 3 provedores diferentes.');
+  }
   const judgeProvider = req.judgeProvider || DEFAULT_JUDGE_PROVIDER;
   const modelProviders = Array.from(new Set([...req.providers, judgeProvider]));
   const models = sanitizeMulti3Models(modelProviders, req.models || {});
@@ -168,27 +171,29 @@ async function runDocumentMulti3Pipeline(
             provider,
             model,
             targetLanguage: 'pt',
-            adaptStyle: 'simplified',
-            multi3Meta: { multi3SessionId: sessionId, multi3Provider: provider, multi3BranchIndex: branchIndex },
             deferPersist: true,
           });
           if (todosResult.finalPath) {
-            const buffer = await fs.readFile(todosResult.finalPath);
-            const archivedPath = await archiveDocumentCandidate(
-              documentId,
-              buffer,
-              `multi3_todos_${provider}`
-            );
-            return done({
-              provider,
-              model,
-              status: 'completed' as const,
-              text: todosResult.previewText,
-              branchIndex,
-              progress: 100,
-              versionIds: todosResult.stepPaths,
-              versionId: archivedPath,
-            });
+            try {
+              const buffer = await fs.readFile(todosResult.finalPath);
+              const archivedPath = await archiveDocumentCandidate(
+                documentId,
+                buffer,
+                `multi3_todos_${provider}`
+              );
+              return done({
+                provider,
+                model,
+                status: 'completed' as const,
+                text: todosResult.previewText,
+                branchIndex,
+                progress: 100,
+                versionIds: todosResult.stepPaths,
+                versionId: archivedPath,
+              });
+            } finally {
+              await fs.unlink(todosResult.finalPath).catch(() => {});
+            }
           }
           return done({
             provider,

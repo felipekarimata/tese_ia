@@ -254,22 +254,31 @@ export default function NormUpdatePage() {
         if (data.chapterId && data.newVersionId) {
           toast.dismiss();
           const appliedSuggestions = data.applicationSummary?.appliedSuggestions;
+          const unmatchedSuggestions = data.applicationSummary?.unmatchedSuggestions;
           const changedParagraphs = data.applicationSummary?.changedParagraphs;
           const countMessage = typeof appliedSuggestions === 'number' && typeof changedParagraphs === 'number'
             ? ` ${appliedSuggestions} ${appliedSuggestions === 1 ? 'sugestão aplicada' : 'sugestões aplicadas'} em ${changedParagraphs} ${changedParagraphs === 1 ? 'parágrafo' : 'parágrafos'}.`
             : '';
-          toast.success(
+          const successMessage =
             (isCurrentness
               ? 'Atualizações aplicadas! Nova versão do capítulo criada.'
               : 'Normas aplicadas! Nova versão do capítulo criada.')
-            + countMessage
-          );
+            + countMessage;
+          if (typeof unmatchedSuggestions === 'number' && unmatchedSuggestions > 0) {
+            toast.warning(
+              `${successMessage} ${unmatchedSuggestions} ${unmatchedSuggestions === 1 ? 'sugestão não foi localizada' : 'sugestões não foram localizadas'} no Word.`
+            );
+          } else {
+            toast.success(successMessage);
+          }
           router.push(`/chapters/${data.chapterId}/versions/${data.newVersionId}`);
           return;
         }
       }
 
       // Download do arquivo (documento de projeto)
+      const appliedSuggestions = Number(res.headers.get('X-Autoria-Applied-Suggestions') || '0');
+      const unmatchedSuggestions = Number(res.headers.get('X-Autoria-Unmatched-Suggestions') || '0');
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -281,7 +290,13 @@ export default function NormUpdatePage() {
       document.body.removeChild(a);
 
       toast.dismiss();
-      toast.success('Atualizações aplicadas! Documento baixado.');
+      if (unmatchedSuggestions > 0) {
+        toast.warning(
+          `${appliedSuggestions} sugestões aplicadas e ${unmatchedSuggestions} não localizadas. Documento parcial baixado.`
+        );
+      } else {
+        toast.success('Atualizações aplicadas! Documento baixado.');
+      }
 
     } catch (error: any) {
       toast.dismiss();
