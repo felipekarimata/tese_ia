@@ -1,6 +1,7 @@
 import { classifyAIError, getAIErrorMessage } from '@/lib/ai-error-message';
 import { isCancellationErrorMessage } from '@/lib/job-cancellation';
 import type { Multi3Candidate } from './types';
+import { multi3OverallProgress } from './progress';
 
 type SessionLike = {
   status?: string;
@@ -37,6 +38,7 @@ export function formatMulti3ProgressLine(session: SessionLike & { providers?: st
   const failed = session.candidates?.filter((c) => c.status === 'failed').length ?? 0;
   const running = session.candidates?.filter((c) => c.status === 'running') ?? [];
   const status = session.status ?? 'running';
+  const overall = multi3OverallProgress({ status, candidates: session.candidates });
   const cmd = session.command?.replace('/', '') || 'comando';
   const labels: Record<string, string> = {
     running: 'iniciando',
@@ -58,11 +60,11 @@ export function formatMulti3ProgressLine(session: SessionLike & { providers?: st
 
   if (running.length > 0 && done === 0) {
     const active = running
-      .map((c) => c.progressLabel || c.provider)
+      .map((c) => `${c.provider}: ${c.progressLabel || 'iniciando'} (${Math.round(c.progress || 0)}%)`)
       .slice(0, 3)
       .join(', ');
-    return `Multi-IA /${cmd}: ${phase} — ${active} (${done}/${total})`;
+    return `Multi-IA /${cmd}: ${overall}% — ${active}`;
   }
 
-  return `Multi-IA /${cmd}: ${phase} — ${done}/${total} concluídas`;
+  return `Multi-IA /${cmd}: ${overall}% — ${phase}, ${done}/${total} concluídas`;
 }

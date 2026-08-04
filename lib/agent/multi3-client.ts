@@ -76,17 +76,26 @@ export async function startMulti3WithRun(
   const sessionId = createData.session.id as string;
   const runUrl = `${createUrl}/${sessionId}/run`;
 
-  try {
-    const runRes = await fetch(runUrl, { method: 'POST' });
-    if (!runRes.ok) {
-      const err = await runRes.json().catch(() => ({}));
-      console.warn('[multi3 run trigger]', err.error || runRes.status);
-    }
-  } catch (err) {
-    console.error('[multi3 run trigger]', err);
-  }
+  // Do not await the long-running request: polling must start immediately so the
+  // user can see persisted progress while the three candidates are executing.
+  void fetch(runUrl, { method: 'POST' })
+    .then(async (runRes) => {
+      if (!runRes.ok) {
+        const err = await runRes.json().catch(() => ({}));
+        console.warn('[multi3 run trigger]', err.error || runRes.status);
+      }
+    })
+    .catch((err) => console.error('[multi3 run trigger]', err));
 
   return sessionId;
+}
+
+function latestSessionActivity(session: any): number {
+  const createdAt = new Date(session?.createdAt || 0).getTime();
+  return (session?.candidates || []).reduce((latest: number, candidate: any) => {
+    const updatedAt = candidate.updatedAt ? new Date(candidate.updatedAt).getTime() : 0;
+    return Math.max(latest, Number.isFinite(updatedAt) ? updatedAt : 0);
+  }, Number.isFinite(createdAt) ? createdAt : 0);
 }
 
 function isSessionStuck(session: any): boolean {
@@ -94,8 +103,7 @@ function isSessionStuck(session: any): boolean {
   if (!['running', 'processing'].includes(session.status)) return false;
   const done = session.candidates?.filter((c: any) => c.status === 'completed' || c.status === 'failed').length ?? 0;
   if (done > 0) return false;
-  const age = Date.now() - new Date(session.createdAt).getTime();
-  return age > 20_000;
+  return Date.now() - latestSessionActivity(session) > 180_000;
 }
 
 export async function pollMulti3Session(
@@ -114,7 +122,9 @@ export async function pollMulti3Session(
     const done = session.candidates?.filter((c: any) => c.status === 'completed').length ?? 0;
     const age = Date.now() - new Date(session.createdAt).getTime();
     const now = Date.now();
-    if (done === 0 && age > 4000 && now - lastRunTrigger > 15_000) {
+    const needsInitialTrigger = session.status === 'running' && age > 4000;
+    const needsRecoveryTrigger = session.status === 'processing' && isSessionStuck(session);
+    if (done === 0 && (needsInitialTrigger || needsRecoveryTrigger) && now - lastRunTrigger > 15_000) {
       lastRunTrigger = now;
       void fetch(runUrl, { method: 'POST' }).catch(() => {});
     }
@@ -129,7 +139,7 @@ export async function pollMulti3Session(
 
       maybeTriggerRun(session);
 
-      if (isSessionStuck(session) && Date.now() - new Date(session.createdAt).getTime() > 180_000) {
+      if (isSessionStuck(session) && !runUrl) {
         throw new Error(
           'Multi-IA travou em 0/3 — clique em Reprocessar Multi-IA no histórico ou tente o comando novamente.'
         );

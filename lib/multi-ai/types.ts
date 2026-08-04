@@ -19,6 +19,14 @@ export type Multi3SessionStatus =
 
 export type Multi3CandidateStatus = 'running' | 'completed' | 'failed';
 
+export type Multi3TodosStage =
+  | 'starting'
+  | 'translate'
+  | 'review'
+  | 'improve'
+  | 'finalize'
+  | 'completed';
+
 export type Multi3Candidate = {
   provider: AIProvider;
   model: string;
@@ -31,6 +39,12 @@ export type Multi3Candidate = {
   branchIndex?: number;
   progress?: number;
   progressLabel?: string;
+  stage?: Multi3TodosStage;
+  stageProgress?: number;
+  currentBatch?: number;
+  totalBatches?: number;
+  /** Heartbeat persisted with the candidate so long-running sessions are not reclaimed. */
+  updatedAt?: string;
   /** Stored inside the candidates JSON for backwards-compatible session persistence. */
   judgeModel?: string;
 };

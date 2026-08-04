@@ -11,6 +11,8 @@ import { AIProvider } from '@/lib/ai/types';
 import { randomUUID } from 'crypto';
 import { multi3DefaultModel } from './models';
 
+const candidatePatchQueues = new Map<string, Promise<void>>();
+
 function rowToSession(row: Record<string, unknown>): Multi3Session {
   const candidates = (row.candidates as Multi3Candidate[]) || [];
   const judgeProvider = (row.judge_provider as AIProvider) || DEFAULT_JUDGE_PROVIDER;
@@ -131,14 +133,26 @@ export async function patchMulti3Candidate(
   branchIndex: number,
   candidate: Multi3Candidate
 ): Promise<void> {
-  const session = await getMulti3Session(sessionId);
-  if (!session) return;
-  const candidates = session.candidates.map((c) =>
-    (c.branchIndex ?? session.providers.indexOf(c.provider)) === branchIndex
-      ? { ...c, ...candidate }
-      : c
-  );
-  await updateMulti3Session(sessionId, { candidates });
+  const previous = candidatePatchQueues.get(sessionId) || Promise.resolve();
+  const next = previous.catch(() => undefined).then(async () => {
+    const session = await getMulti3Session(sessionId);
+    if (!session) return;
+    const candidates = session.candidates.map((c) =>
+      (c.branchIndex ?? session.providers.indexOf(c.provider)) === branchIndex
+        ? { ...c, ...candidate, updatedAt: new Date().toISOString() }
+        : c
+    );
+    await updateMulti3Session(sessionId, { candidates });
+  });
+
+  candidatePatchQueues.set(sessionId, next);
+  try {
+    await next;
+  } finally {
+    if (candidatePatchQueues.get(sessionId) === next) {
+      candidatePatchQueues.delete(sessionId);
+    }
+  }
 }
 
 /** Sessão em processing/running sem candidato concluído — provável execução morta. */
@@ -149,7 +163,11 @@ export function isMulti3SessionStale(session: Multi3Session, staleMs = 90_000): 
   const hasTerminal = candidates.some((c) => c.status === 'completed' || c.status === 'failed');
   if (hasTerminal) return false;
 
-  const ageMs = Date.now() - new Date(session.createdAt).getTime();
+  const latestHeartbeat = candidates.reduce((latest, candidate) => {
+    const timestamp = candidate.updatedAt ? new Date(candidate.updatedAt).getTime() : 0;
+    return Math.max(latest, Number.isFinite(timestamp) ? timestamp : 0);
+  }, new Date(session.createdAt).getTime());
+  const ageMs = Date.now() - latestHeartbeat;
   return ageMs >= staleMs;
 }
 

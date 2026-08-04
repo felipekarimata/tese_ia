@@ -22,6 +22,7 @@ import { classifyAIError } from '@/lib/ai-error-message';
 import { cancelJobRequest } from '@/components/jobs-status-button';
 import { Multi3ComparePanel } from '@/components/multi-ai/multi3-compare-panel';
 import { Multi3CommandHelp } from '@/components/multi-ai/multi3-command-help';
+import { Multi3ProgressCard } from '@/components/multi-ai/multi3-progress-card';
 import { parseMulti3Command, buildMulti3ApiBody, pollMulti3Session, startMulti3WithRun, formatMulti3Progress, getMulti3FailureMessage, explainMulti3ParseFailure } from '@/lib/agent/multi3-client';
 import { MULTI3_PROVIDERS, resolveMulti3Models } from '@/lib/multi-ai/models';
 import { getAIErrorMessage } from '@/lib/ai-error-message';
@@ -1030,11 +1031,57 @@ export default function AgentModePage() {
     }
   };
 
+  const resumeMulti3Message = async (message: ChatMessage) => {
+    if (!message.multi3SessionId) return;
+    const sessionId = message.multi3SessionId;
+    const base = `/api/chapters/${chapterId}/multi3`;
+
+    try {
+      const finalSession = await pollMulti3Session(
+        `${base}/${sessionId}`,
+        (session) => {
+          setActiveMulti3Session(session);
+          updateMessage(message.id, { content: formatMulti3Progress(session) });
+        },
+        3000,
+        45 * 60 * 1000,
+        `${base}/${sessionId}/run`
+      );
+
+      setActiveMulti3Session(finalSession);
+      setMulti3PanelOpen(true);
+      await Promise.all([refreshVersions(), refreshMulti3Sessions()]);
+
+      if (finalSession.status === 'accepted' || finalSession.status === 'awaiting_human') {
+        const winnerLabel = finalSession.winnerProvider || '—';
+        updateMessage(message.id, {
+          status: 'success',
+          content: finalSession.status === 'accepted'
+            ? `Multi-IA concluída. Versão ${winnerLabel} salva como ativa. Todas as versões estão no histórico Multi-IA. ${finalSession.judgeReasoning || ''}`
+            : `Comparação pronta. Juiz recomenda: ${winnerLabel}. ${finalSession.judgeReasoning || ''}`,
+          multi3Phase: finalSession.status === 'accepted' ? 'accepted' : 'compare',
+          multi3SessionId: sessionId,
+        });
+      } else if (finalSession.status === 'failed') {
+        const error = getMulti3FailureMessage(finalSession);
+        updateMessage(message.id, { status: 'error', content: error });
+      }
+    } catch (error: any) {
+      updateMessage(message.id, { status: 'error', content: error.message });
+    }
+  };
+
   useEffect(() => {
     if (loadingChapter || versions.length === 0) return;
     for (const message of messages) {
       if (message.status !== 'running' || message.role !== 'assistant') continue;
       if (resumedMessagesRef.current.has(message.id)) continue;
+
+      if (message.command === '/todos' && message.multi3SessionId) {
+        resumedMessagesRef.current.add(message.id);
+        void resumeMulti3Message(message);
+        continue;
+      }
 
       if (
         message.command === '/todos' &&
@@ -1220,6 +1267,7 @@ export default function AgentModePage() {
           command: '/todos',
           multi3Phase: 'running',
         });
+        resumedMessagesRef.current.add(asstId);
       try {
         const apiBody = buildMulti3ApiBody(multi3Start, selectedVersionId, models);
         const base = `/api/chapters/${chapterId}/multi3`;
@@ -1659,6 +1707,11 @@ export default function AgentModePage() {
                   <MessageBubble
                     key={msg.id}
                     message={msg}
+                    multi3Session={
+                      msg.multi3SessionId && activeMulti3Session?.id === msg.multi3SessionId
+                        ? activeMulti3Session
+                        : null
+                    }
                     versions={versions}
                     onViewVersion={(vId) => {
                       setSelectedVersionId(vId);
@@ -1898,10 +1951,11 @@ function WelcomeBlock({ onPick }: { onPick: (cmd: string) => void }) {
 // ─── MessageBubble ────────────────────────────────────────────────────────────
 
 function MessageBubble({
-  message, versions, onApplyPendingEdit, onViewVersion,
+  message, versions, onApplyPendingEdit, onViewVersion, multi3Session,
 }: {
   message: ChatMessage;
   versions?: ChapterVersion[];
+  multi3Session?: Multi3Session | null;
   onApplyPendingEdit?: (prompt: string) => void;
   onViewVersion?: (versionId: string) => void;
 }) {
@@ -1956,9 +2010,14 @@ function MessageBubble({
 
         {message.status === 'running' && (
           <div className="space-y-1.5">
+            {message.command === '/todos' && multi3Session && (
+              <Multi3ProgressCard session={multi3Session} />
+            )}
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Processando...
+              {message.command === '/todos' && multi3Session
+                ? formatMulti3Progress(multi3Session)
+                : 'Processando...'}
               {message.jobResultHref && (
                 <Link
                   href={message.jobResultHref}
@@ -1988,20 +2047,20 @@ function MessageBubble({
                     Cancelar
                   </button>
                 )}
-                {message.multi3SessionId && message.command === '/todos' && (
-                  <button
-                    onClick={async (e) => {
-                      e.preventDefault();
-                      if (!confirm('Cancelar Multi-IA? A operação para na próxima chamada à IA.')) return;
-                      await cancelJobRequest(message.multi3SessionId!, 'multi3');
-                    }}
-                    className="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-red-400 transition-colors"
-                  >
-                    <Ban className="h-3 w-3" />
-                    Cancelar Multi-IA
-                  </button>
-                )}
               </>
+            )}
+            {message.multi3SessionId && message.command === '/todos' && (
+              <button
+                onClick={async (e) => {
+                  e.preventDefault();
+                  if (!confirm('Cancelar Multi-IA? A operação para na próxima chamada à IA.')) return;
+                  await cancelJobRequest(message.multi3SessionId!, 'multi3');
+                }}
+                className="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-red-400 transition-colors"
+              >
+                <Ban className="h-3 w-3" />
+                Cancelar Multi-IA
+              </button>
             )}
           </div>
         )}

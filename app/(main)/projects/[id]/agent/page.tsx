@@ -10,7 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ArrowLeft, Send, FileText, PanelLeftClose, PanelLeftOpen, Sparkles,
   Loader2, Trash2, Languages, Wand2, Sliders, SearchCheck,
-  CheckCircle2, AlertCircle, Bot, User as UserIcon, Download, Folder, Cpu, ExternalLink, Ban, Terminal, BookOpen
+  CheckCircle2, AlertCircle, Bot, User as UserIcon, Download, Folder, Cpu, ExternalLink, Ban, Terminal, BookOpen, History
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,7 @@ import { classifyAIError } from '@/lib/ai-error-message';
 import { cancelJobRequest } from '@/components/jobs-status-button';
 import { Multi3ComparePanel } from '@/components/multi-ai/multi3-compare-panel';
 import { Multi3CommandHelp } from '@/components/multi-ai/multi3-command-help';
+import { Multi3ProgressCard } from '@/components/multi-ai/multi3-progress-card';
 import { parseMulti3Command, buildMulti3ApiBody, pollMulti3Session, startMulti3WithRun, formatMulti3Progress, getMulti3FailureMessage, explainMulti3ParseFailure } from '@/lib/agent/multi3-client';
 import { MULTI3_PROVIDERS, resolveMulti3Models } from '@/lib/multi-ai/models';
 import { getAIErrorMessage } from '@/lib/ai-error-message';
@@ -100,6 +101,9 @@ type ChatMessage = {
   aiModel?: string;
   /** When AI detected an edit-intent from free text. */
   pendingEditPrompt?: string;
+  multi3SessionId?: string;
+  multi3Phase?: 'running' | 'compare' | 'accepted';
+  multi3TargetId?: string;
 };
 
 type SlashCommand = {
@@ -217,10 +221,43 @@ export default function ProjectAgentPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const [activeMulti3Session, setActiveMulti3Session] = useState<Multi3Session | null>(null);
+  const [multi3Sessions, setMulti3Sessions] = useState<Multi3Session[]>([]);
   const [multi3PanelOpen, setMulti3PanelOpen] = useState(false);
+  const multi3PollingSessionIdsRef = useRef<Set<string>>(new Set());
+
+  const refreshMulti3Sessions = useCallback(async (documentId: string): Promise<Multi3Session[]> => {
+    try {
+      const res = await fetch(`/api/documents/${documentId}/multi3`, { cache: 'no-store' });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const sessions: Multi3Session[] = data.sessions || [];
+      setMulti3Sessions(sessions);
+      return sessions;
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const openMulti3Session = useCallback(async (sessionId: string, documentId: string) => {
+    try {
+      const res = await fetch(`/api/documents/${documentId}/multi3/${sessionId}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Sessão Multi-IA não encontrada');
+      setActiveMulti3Session(data.session);
+      setMulti3PanelOpen(true);
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao abrir comparação Multi-IA');
+    }
+  }, []);
 
   const storageKey = `agent-chat-project-${projectId}`;
   const bookWorkflowStorageKey = `book-workflow-document-${selectedDocId || 'none'}`;
+  const resumableMulti3Message = [...messages].reverse().find(
+    (message) => message.status === 'running' && message.command === '/todos' && message.multi3SessionId
+  );
+  const resumableMulti3SessionId = resumableMulti3Message?.multi3SessionId;
+  const resumableMulti3MessageId = resumableMulti3Message?.id;
+  const resumableMulti3TargetId = resumableMulti3Message?.multi3TargetId || selectedDocId;
 
   // Load project + documents
   useEffect(() => {
@@ -266,6 +303,14 @@ export default function ProjectAgentPage() {
     return () => window.removeEventListener(AUTORIA_SETTINGS_UPDATED, handler);
   }, [refreshSettings]);
 
+  useEffect(() => {
+    if (!selectedDocId) {
+      setMulti3Sessions([]);
+      return;
+    }
+    refreshMulti3Sessions(selectedDocId);
+  }, [selectedDocId, refreshMulti3Sessions]);
+
   // Load chat
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -279,6 +324,62 @@ export default function ProjectAgentPage() {
     if (typeof window === 'undefined') return;
     try { localStorage.setItem(storageKey, JSON.stringify(messages)); } catch {}
   }, [messages, storageKey]);
+
+  // Reconnects the visual progress after a reload or after returning to the page.
+  useEffect(() => {
+    if (!resumableMulti3TargetId || !resumableMulti3SessionId || !resumableMulti3MessageId) return;
+    if (multi3PollingSessionIdsRef.current.has(resumableMulti3SessionId)) return;
+
+    const sessionId = resumableMulti3SessionId;
+    const messageId = resumableMulti3MessageId;
+    const base = `/api/documents/${resumableMulti3TargetId}/multi3`;
+    let disposed = false;
+    multi3PollingSessionIdsRef.current.add(sessionId);
+
+    pollMulti3Session(
+      `${base}/${sessionId}`,
+      (session) => {
+        if (disposed) return;
+        setActiveMulti3Session(session);
+        setMessages((current) => current.map((message) =>
+          message.id === messageId ? { ...message, content: formatMulti3Progress(session) } : message
+        ));
+      },
+      3000,
+      45 * 60 * 1000,
+      `${base}/${sessionId}/run`
+    ).then((finalSession) => {
+      if (disposed) return;
+      setActiveMulti3Session(finalSession);
+      setMulti3PanelOpen(true);
+      const winnerLabel = finalSession.winnerProvider || '—';
+      if (finalSession.status === 'accepted' || finalSession.status === 'awaiting_human') {
+        setMessages((current) => current.map((message) => message.id === messageId ? {
+          ...message,
+          status: 'success',
+          multi3Phase: finalSession.status === 'accepted' ? 'accepted' : 'compare',
+          content: finalSession.status === 'accepted'
+            ? `Multi-IA concluída. Versão ${winnerLabel} salva como ativa. ${finalSession.judgeReasoning || ''}`
+            : `Comparação pronta. Juiz recomenda: ${winnerLabel}. ${finalSession.judgeReasoning || ''}`,
+        } : message));
+      } else if (finalSession.status === 'failed') {
+        const error = getMulti3FailureMessage(finalSession);
+        setMessages((current) => current.map((message) =>
+          message.id === messageId ? { ...message, status: 'error', content: error } : message
+        ));
+      }
+    }).catch((error) => {
+      if (disposed) return;
+      setMessages((current) => current.map((message) =>
+        message.id === messageId ? { ...message, status: 'error', content: error.message } : message
+      ));
+    }).finally(() => {
+      multi3PollingSessionIdsRef.current.delete(sessionId);
+      refreshMulti3Sessions(resumableMulti3TargetId);
+    });
+
+    return () => { disposed = true; };
+  }, [resumableMulti3TargetId, resumableMulti3SessionId, resumableMulti3MessageId, refreshMulti3Sessions]);
 
   // Load document detail + text when selected doc changes
   useEffect(() => {
@@ -718,11 +819,19 @@ export default function ProjectAgentPage() {
         status: 'running',
         command: '/todos',
       });
+      let launchedMulti3SessionId: string | undefined;
       try {
         const apiBody = buildMulti3ApiBody(multi3Start, selectedDocId, models);
         const base = `/api/documents/${selectedDocId}/multi3`;
         const sessionId = await startMulti3WithRun(base, apiBody);
+        launchedMulti3SessionId = sessionId;
         const runUrl = `${base}/${sessionId}/run`;
+        multi3PollingSessionIdsRef.current.add(sessionId);
+        updateMessage(asstId, {
+          multi3SessionId: sessionId,
+          multi3Phase: 'running',
+          multi3TargetId: selectedDocId,
+        });
 
         const finalSession = await pollMulti3Session(
           `${base}/${sessionId}`,
@@ -736,11 +845,13 @@ export default function ProjectAgentPage() {
         );
         setActiveMulti3Session(finalSession);
         setMulti3PanelOpen(true);
+        await refreshMulti3Sessions(selectedDocId);
 
         if (finalSession.status === 'accepted' || finalSession.status === 'awaiting_human') {
           const winnerLabel = finalSession.winnerProvider || '—';
           updateMessage(asstId, {
             status: 'success',
+            multi3Phase: finalSession.status === 'accepted' ? 'accepted' : 'compare',
             content: finalSession.status === 'accepted' && finalSession.command !== '/perguntar'
               ? `Multi-IA concluída. Versão ${winnerLabel} salva como ativa. ${finalSession.judgeReasoning || ''}`
               : `Comparação pronta. Juiz recomenda: ${winnerLabel}. ${finalSession.judgeReasoning || ''}`,
@@ -756,6 +867,9 @@ export default function ProjectAgentPage() {
       } catch (e: any) {
         updateMessage(asstId, { status: 'error', content: e.message });
       } finally {
+        if (launchedMulti3SessionId) {
+          multi3PollingSessionIdsRef.current.delete(launchedMulti3SessionId);
+        }
         setSending(false);
       }
       return;
@@ -1100,6 +1214,25 @@ export default function ProjectAgentPage() {
             </Button>
           </Link>
 
+          {multi3Sessions.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const latestSession = multi3Sessions[multi3Sessions.length - 1];
+                if (latestSession) openMulti3Session(latestSession.id, selectedDocId);
+              }}
+              className="text-indigo-300 hover:text-indigo-200 hover:bg-indigo-500/10 gap-1.5 text-xs h-9"
+              title="Abrir a comparação Multi-IA mais recente"
+            >
+              <History className="h-4 w-4" />
+              <span className="hidden lg:inline">Multi-IA</span>
+              <Badge className="bg-indigo-500/15 text-indigo-300 border border-indigo-500/25 text-[10px] px-1.5">
+                {multi3Sessions.length}
+              </Badge>
+            </Button>
+          )}
+
           <Button variant="ghost" size="sm" onClick={handleDownload} className="text-gray-400 hover:text-white" title="Baixar documento">
             <Download className="h-4 w-4" />
           </Button>
@@ -1145,10 +1278,24 @@ export default function ProjectAgentPage() {
                 <MessageBubble
                   key={msg.id}
                   message={msg}
+                  multi3Session={
+                    msg.multi3SessionId && activeMulti3Session?.id === msg.multi3SessionId
+                      ? activeMulti3Session
+                      : null
+                  }
                   onApplyPendingEdit={(prompt) => {
                     updateMessage(msg.id, { pendingEditPrompt: undefined });
                     setSending(true);
                     runAdjustPipeline(prompt).finally(() => setSending(false));
+                  }}
+                  onOpenMulti3Session={() => {
+                    const sessionId = msg.multi3SessionId || multi3Sessions[multi3Sessions.length - 1]?.id;
+                    const documentId = msg.multi3TargetId || selectedDocId;
+                    if (sessionId && documentId) {
+                      openMulti3Session(sessionId, documentId);
+                    } else {
+                      toast.error('Não foi encontrada uma comparação Multi-IA para este documento');
+                    }
                   }}
                 />
               ))}
@@ -1229,10 +1376,10 @@ export default function ProjectAgentPage() {
         </div>
       </div>
 
-      {multi3PanelOpen && activeMulti3Session && selectedDocId && (
+      {multi3PanelOpen && activeMulti3Session && (activeMulti3Session.targetId || selectedDocId) && (
         <Multi3ComparePanel
           session={activeMulti3Session}
-          documentId={selectedDocId}
+          documentId={activeMulti3Session.targetId || selectedDocId}
           onClose={() => setMulti3PanelOpen(false)}
           onAccepted={(session) => {
             setActiveMulti3Session(session);
@@ -1279,10 +1426,12 @@ function WelcomeBlock({ onPick }: { onPick: (cmd: string) => void }) {
 }
 
 function MessageBubble({
-  message, onApplyPendingEdit,
+  message, onApplyPendingEdit, multi3Session, onOpenMulti3Session,
 }: {
   message: ChatMessage;
   onApplyPendingEdit?: (prompt: string) => void;
+  multi3Session?: Multi3Session | null;
+  onOpenMulti3Session?: () => void;
 }) {
   const isErrorMsg = message.status === 'error';
   const errorInfo = isErrorMsg ? classifyAIError(message.content) : null;
@@ -1335,9 +1484,14 @@ function MessageBubble({
 
         {message.status === 'running' && (
           <div className="space-y-1.5">
+            {message.command === '/todos' && multi3Session && (
+              <Multi3ProgressCard session={multi3Session} />
+            )}
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Processando...
+              {message.command === '/todos' && multi3Session
+                ? formatMulti3Progress(multi3Session)
+                : 'Processando...'}
             </div>
             <p className="text-[11px] text-gray-600 leading-relaxed">
               Pode sair desta página — a operação continua no servidor. Veja o status em <strong className="text-gray-500">Operações</strong> no topo.
@@ -1363,6 +1517,19 @@ function MessageBubble({
                 Cancelar
               </button>
             )}
+            {message.multi3SessionId && message.command === '/todos' && (
+              <button
+                onClick={async (e) => {
+                  e.preventDefault();
+                  if (!confirm('Cancelar Multi-IA? A operação para na próxima chamada à IA.')) return;
+                  await cancelJobRequest(message.multi3SessionId!, 'multi3');
+                }}
+                className="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-red-400 transition-colors"
+              >
+                <Ban className="h-3 w-3" />
+                Cancelar Multi-IA
+              </button>
+            )}
           </div>
         )}
 
@@ -1375,6 +1542,20 @@ function MessageBubble({
               <ExternalLink className="h-3 w-3" />
               Ver resultado e aplicar
             </Link>
+          </div>
+        )}
+
+        {message.status === 'success' && message.command === '/todos' && onOpenMulti3Session && (
+          <div className="pt-1">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onOpenMulti3Session}
+              className="h-8 border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 hover:text-indigo-200 gap-1.5 text-xs"
+            >
+              <History className="h-3.5 w-3.5" />
+              Reabrir comparação Multi-IA
+            </Button>
           </div>
         )}
 

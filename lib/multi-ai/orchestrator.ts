@@ -17,8 +17,10 @@ import {
   Multi3Session,
   Multi3Candidate,
   Multi3Command,
+  Multi3TodosStage,
   DEFAULT_JUDGE_PROVIDER,
 } from './types';
+import { stageOverallProgress } from './progress';
 import { AIProvider } from '@/lib/ai/types';
 import { multi3CancelCheck, isCancelledError } from './cancel';
 import { getMulti3FailureMessage } from './errors';
@@ -67,6 +69,14 @@ function multi3Meta(sessionId: string, provider: AIProvider, branchIndex: number
     multi3BranchIndex: branchIndex,
   };
 }
+
+type TodosStage = Exclude<Multi3TodosStage, 'starting' | 'completed'>;
+type CandidateStepProgress = (
+  stageProgress: number,
+  label: string,
+  currentBatch?: number,
+  totalBatches?: number
+) => void | Promise<void>;
 
 export async function startChapterMulti3(
   chapterId: string,
@@ -170,24 +180,40 @@ async function runChapterMulti3Pipeline(
         branchIndex,
         progress: 5,
         progressLabel: 'Iniciando...',
+        stage: 'starting',
+        stageProgress: 0,
       });
 
-      const result = await runSingleCandidate(chapterId, sessionId, req, provider, branchIndex);
-      console.log(`[MULTI3 ${sessionId}] Candidato ${provider}/${req.models?.[provider] || multi3DefaultModel(provider)} → ${result.status}`);
-      await patchMulti3Candidate(sessionId, branchIndex, result);
-      return result;
+      const heartbeat = setInterval(() => {
+        void patchMulti3Candidate(sessionId, branchIndex, {
+          provider,
+          model: req.models?.[provider] || multi3DefaultModel(provider),
+          status: 'running',
+          branchIndex,
+        }).catch((error) => console.warn(`[MULTI3 ${sessionId}] heartbeat`, error));
+      }, 30_000);
+
+      try {
+        const result = await runSingleCandidate(chapterId, sessionId, req, provider, branchIndex);
+        console.log(`[MULTI3 ${sessionId}] Candidato ${provider}/${req.models?.[provider] || multi3DefaultModel(provider)} → ${result.status}`);
+        await patchMulti3Candidate(sessionId, branchIndex, result);
+        return result;
+      } finally {
+        clearInterval(heartbeat);
+      }
     })
   );
 
   cancelCheck();
-  await updateMulti3Session(sessionId, { candidates, status: 'candidates_ready' });
+  const persistedCandidates = (await getMulti3Session(sessionId))?.candidates || candidates;
+  await updateMulti3Session(sessionId, { candidates: persistedCandidates, status: 'candidates_ready' });
 
-  const completed = candidates.filter((c) => c.status === 'completed');
+  const completed = persistedCandidates.filter((c) => c.status === 'completed');
   if (completed.length === 0) {
     await updateMulti3Session(sessionId, {
       status: 'failed',
       completedAt: new Date().toISOString(),
-      judgeReasoning: getMulti3FailureMessage({ candidates, status: 'failed' }),
+      judgeReasoning: getMulti3FailureMessage({ candidates: persistedCandidates, status: 'failed' }),
     });
     return;
   }
@@ -305,18 +331,28 @@ async function runTodosCandidate(
     autoAppliedBy: '/todos',
     multi3Step: step,
   });
-  const markStep = async (progress: number, progressLabel: string) => {
+  const markStep = async (
+    stage: TodosStage,
+    stageProgress: number,
+    progressLabel: string,
+    currentBatch?: number,
+    totalBatches?: number
+  ) => {
     await patchMulti3Candidate(sessionId, branchIndex, {
       provider,
       model,
       status: 'running',
       branchIndex,
-      progress,
+      progress: stageOverallProgress(stage, stageProgress),
       progressLabel,
+      stage,
+      stageProgress,
+      currentBatch,
+      totalBatches,
     });
   };
 
-  await markStep(10, 'Traduzindo para português');
+  await markStep('translate', 0, 'Preparando tradução para português');
   const translated = await runTranslateCandidate(
     chapterId,
     versionId,
@@ -324,24 +360,28 @@ async function runTodosCandidate(
     model,
     'pt',
     stepMeta('translate'),
-    sessionId
+    sessionId,
+    (progress, label, current, total) => markStep('translate', progress, label, current, total)
   );
   if (!translated.versionId) throw new Error('/todos: tradução não gerou versão');
   versionIds.push(translated.versionId);
+  await markStep('translate', 100, 'Tradução concluída');
 
-  await markStep(35, 'Revisando vigência, fatos e dados');
+  await markStep('review', 0, 'Preparando revisão de vigência, fatos e dados');
   const reviewed = await runRevisarCandidate(
     chapterId,
     translated.versionId,
     provider,
     model,
     stepMeta('review'),
-    sessionId
+    sessionId,
+    (progress, label, current, total) => markStep('review', progress, label, current, total)
   );
   if (!reviewed.versionId) throw new Error('/todos: revisão não gerou versão');
   versionIds.push(reviewed.versionId);
+  await markStep('review', 100, 'Revisão concluída');
 
-  await markStep(58, 'Aprimorando conteúdo e fontes');
+  await markStep('improve', 0, 'Preparando aprimoramento de conteúdo e fontes');
   const improved = await runAdjustCandidate(
     chapterId,
     reviewed.versionId,
@@ -350,12 +390,14 @@ async function runTodosCandidate(
     BOOK_IMPROVE_INSTRUCTIONS,
     stepMeta('improve'),
     sessionId,
-    'improve'
+    'improve',
+    (progress, label, current, total) => markStep('improve', progress, label, current, total)
   );
   if (!improved.versionId) throw new Error('/todos: aprimoramento não gerou versão');
   versionIds.push(improved.versionId);
+  await markStep('improve', 100, 'Aprimoramento concluído');
 
-  await markStep(82, 'Finalizando coesão e registro editorial');
+  await markStep('finalize', 0, 'Preparando finalização editorial');
   const finalized = await runAdjustCandidate(
     chapterId,
     improved.versionId,
@@ -363,7 +405,9 @@ async function runTodosCandidate(
     model,
     BOOK_FINALIZE_INSTRUCTIONS,
     stepMeta('finalize'),
-    sessionId
+    sessionId,
+    'adjust',
+    (progress, label, current, total) => markStep('finalize', progress, label, current, total)
   );
   if (!finalized.versionId) throw new Error('/todos: finalização não gerou versão');
   versionIds.push(finalized.versionId);
@@ -378,6 +422,8 @@ async function runTodosCandidate(
     text: finalized.text,
     progress: 100,
     progressLabel: '/todos concluído: traduzir → revisar → aprimorar → finalizar',
+    stage: 'completed',
+    stageProgress: 100,
   };
 }
 
@@ -439,7 +485,8 @@ async function runAdjustCandidate(
   instructions: string,
   meta: Record<string, unknown>,
   sessionId: string,
-  operation: 'adjust' | 'improve' = 'adjust'
+  operation: 'adjust' | 'improve' = 'adjust',
+  onProgress?: CandidateStepProgress
 ): Promise<Multi3Candidate> {
   const cancelCheck = multi3CancelCheck(sessionId);
   const { data: ver } = await supabase.from('chapter_versions').select('file_path').eq('id', versionId).single();
@@ -457,6 +504,7 @@ async function runAdjustCandidate(
     });
 
     if (transform.runBatches) {
+      await onProgress?.(8, 'Preparando os lotes editoriais');
       const suggestions = await analyzeDocumentForAdjustments(
         inputPath,
         instructions,
@@ -465,7 +513,17 @@ async function runAdjustCandidate(
         model,
         getApiKey(provider),
         false,
-        cancelCheck
+        cancelCheck,
+        meta.autoAppliedBy === '/todos' ? 'todos' : 'direct',
+        async (currentBatch, totalBatches) => {
+          const progress = 8 + Math.round((currentBatch / Math.max(1, totalBatches)) * 87);
+          await onProgress?.(
+            progress,
+            `Processando lote editorial ${currentBatch}/${totalBatches}`,
+            currentBatch,
+            totalBatches
+          );
+        }
       );
       const docxSuggestions: ApplyDocxSuggestion[] = suggestions.map((s: any) => ({
         id: s.id,
@@ -473,6 +531,7 @@ async function runAdjustCandidate(
         improvedText: s.adjustedText || s.improvedText || '',
       }));
       await applySuggestionsToDocx(inputPath, outputPath, docxSuggestions);
+      await onProgress?.(98, 'Aplicando as alterações ao documento');
     }
 
     const newVersionId = await createChapterVersionFromFile(
@@ -602,7 +661,8 @@ async function runTranslateCandidate(
   model: string,
   langArg: string,
   meta: Record<string, unknown>,
-  sessionId: string
+  sessionId: string,
+  onProgress?: CandidateStepProgress
 ): Promise<Multi3Candidate> {
   multi3CancelCheck(sessionId)();
   const lang = LANGUAGE_MAP[langArg.toLowerCase().split(/\s+/)[0]] || 'pt';
@@ -625,6 +685,14 @@ async function runTranslateCandidate(
         targetLanguage: lang as any,
         provider,
         model,
+        onProgress: (translationProgress) => {
+          void onProgress?.(
+            translationProgress.percentage,
+            `Traduzindo lote ${translationProgress.currentChunk}/${translationProgress.totalChunks}`,
+            translationProgress.currentChunk,
+            translationProgress.totalChunks
+          );
+        },
       });
       if (!result.success) throw new Error(result.error || 'Falha na tradução');
     }
@@ -659,7 +727,8 @@ async function runRevisarCandidate(
   provider: AIProvider,
   model: string,
   meta: Record<string, unknown>,
-  sessionId: string
+  sessionId: string,
+  onProgress?: CandidateStepProgress
 ): Promise<Multi3Candidate> {
   multi3CancelCheck(sessionId)();
   const { data: ver } = await supabase.from('chapter_versions').select('file_path').eq('id', versionId).single();
@@ -685,12 +754,39 @@ async function runRevisarCandidate(
     const normsModel = provider === 'grok' ? 'gemini-2.5-flash' : model;
     const apiKey = getApiKey(normsProvider);
 
-    const references = await detectNormsInDocument(paragraphsWithContext, normsProvider, normsModel, apiKey);
+    const references = await detectNormsInDocument(
+      paragraphsWithContext,
+      normsProvider,
+      normsModel,
+      apiKey,
+      async (currentBatch, totalBatches) => {
+        await onProgress?.(
+          Math.round((currentBatch / Math.max(1, totalBatches)) * 55),
+          `Detectando referências — lote ${currentBatch}/${totalBatches}`,
+          currentBatch,
+          totalBatches
+        );
+      }
+    );
 
     if (references.length === 0) {
       await fs.copyFile(inputPath, outputPath);
     } else {
-      const verified = await verifyMultipleNorms(references, normsProvider, normsModel, apiKey);
+      const verified = await verifyMultipleNorms(
+        references,
+        normsProvider,
+        normsModel,
+        apiKey,
+        undefined,
+        (current, total) => {
+          void onProgress?.(
+            55 + Math.round((current / Math.max(1, total)) * 40),
+            `Verificando referência ${current}/${total}`,
+            current,
+            total
+          );
+        }
+      );
       const toApply = verified.filter((r) => r.suggestedText);
       if (toApply.length === 0) {
         await fs.copyFile(inputPath, outputPath);

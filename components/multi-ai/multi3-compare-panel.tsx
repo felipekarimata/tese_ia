@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -61,6 +61,21 @@ export function Multi3ComparePanel({
     session.candidates.find((candidate) => candidate.provider === judgeProvider)?.model ||
     (judgeProvider === session.judgeProvider ? session.judgeModel : undefined);
 
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
+
   const handleAccept = async (provider?: AIProvider) => {
     try {
       setAccepting(true);
@@ -98,9 +113,23 @@ export function Multi3ComparePanel({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-6xl max-h-[90vh] flex flex-col rounded-xl border border-white/10 bg-gradient-to-br from-gray-950 to-black shadow-2xl">
-        <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden overscroll-none bg-black/70 p-4 backdrop-blur-sm"
+      onWheel={(event) => {
+        event.stopPropagation();
+        const target = event.target as HTMLElement;
+        if (!target.closest('[data-radix-scroll-area-viewport]')) {
+          event.preventDefault();
+        }
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Comparação Multi-IA"
+        className="flex h-[90dvh] min-h-0 w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-gray-950 to-black shadow-2xl"
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold text-white">Comparação Multi-IA</h2>
             <p className="text-sm text-gray-400">
@@ -115,32 +144,35 @@ export function Multi3ComparePanel({
           </Button>
         </div>
 
-        {session.judgeReasoning && (
-          <div className="mx-6 mt-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3">
-            <div className="flex items-center gap-2 text-yellow-400 text-sm font-medium mb-1">
-              <Trophy className="h-4 w-4" />
-              Recomendação do juiz ({PROVIDER_LABEL[session.judgeProvider]}
-              {session.judgeModel ? ` · ${session.judgeModel}` : ''})
-              {session.winnerProvider && `: ${PROVIDER_LABEL[session.winnerProvider]}`}
-            </div>
-            <p className="text-sm text-gray-300">{session.judgeReasoning}</p>
-            {session.judgeScores && Object.keys(session.judgeScores).length > 0 && (
-              <div className="flex gap-2 mt-2 flex-wrap">
-                {Object.entries(session.judgeScores).map(([p, score]) => (
-                  <Badge key={p} variant="outline" className="text-xs">
-                    {p}: {score}/10
-                  </Badge>
-                ))}
+        <ScrollArea className="min-h-0 flex-1 overscroll-contain [&_[data-radix-scroll-area-viewport]]:overscroll-contain">
+          <div className="space-y-4 px-6 py-4">
+            {session.judgeReasoning && (
+              <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3">
+                <div className="mb-1 flex items-center gap-2 text-sm font-medium text-yellow-400">
+                  <Trophy className="h-4 w-4 shrink-0" />
+                  <span>
+                    Recomendação do juiz ({PROVIDER_LABEL[session.judgeProvider]}
+                    {session.judgeModel ? ` · ${session.judgeModel}` : ''})
+                    {session.winnerProvider && `: ${PROVIDER_LABEL[session.winnerProvider]}`}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-300">{session.judgeReasoning}</p>
+                {session.judgeScores && Object.keys(session.judgeScores).length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {Object.entries(session.judgeScores).map(([p, score]) => (
+                      <Badge key={p} variant="outline" className="text-xs">
+                        {p}: {score}/10
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        <ScrollArea className="flex-1 px-6 py-4">
-          <div className={cn(
-            'grid gap-4',
-            completed.length === 1 ? 'grid-cols-1' : completed.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'
-          )}>
+            <div className={cn(
+              'grid items-start gap-4',
+              completed.length === 1 ? 'grid-cols-1' : completed.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'
+            )}>
             {session.candidates.map((candidate) => (
               <Card
                 key={candidate.provider}
@@ -180,7 +212,7 @@ export function Multi3ComparePanel({
                   )}
                   {candidate.status === 'completed' && (
                     <>
-                      <div className="prose prose-sm prose-invert max-w-none text-sm text-gray-300 whitespace-pre-wrap max-h-64 overflow-y-auto">
+                      <div className="prose prose-sm prose-invert max-w-none whitespace-pre-wrap text-sm text-gray-300">
                         {candidate.text?.slice(0, 3000) || '(Sem preview de texto)'}
                         {(candidate.text?.length ?? 0) > 3000 && '…'}
                       </div>
@@ -213,10 +245,11 @@ export function Multi3ComparePanel({
                 </CardContent>
               </Card>
             ))}
+            </div>
           </div>
         </ScrollArea>
 
-        <div className="border-t border-white/10 px-6 py-4 flex flex-wrap items-center gap-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-white/10 px-6 py-4">
           {!isTextOnly && (
             <p className="text-xs text-gray-500 w-full sm:w-auto">
               Todas as versões ficam no histórico Multi-IA. Compare aqui ou use <code className="text-gray-400">/comparar</code>.
