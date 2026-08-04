@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { ChatRequest, AIResponse } from './types';
 import { buildSystemPrompt, buildUserPrompt, extractCitations } from './prompts';
 import { state } from '../state';
+import { anthropicTemperatureOption } from './anthropic-compat';
 
 /** Concatena blocos de texto da resposta do assistente. */
 export function textFromAnthropicContent(
@@ -29,7 +30,7 @@ export async function anthropicChat(params: {
     model: params.model,
     max_tokens: params.maxTokens ?? 8192,
     ...(params.system ? { system: params.system } : {}),
-    ...(params.temperature === undefined ? {} : { temperature: params.temperature }),
+    ...anthropicTemperatureOption(params.model, params.temperature),
     messages: [{ role: 'user', content: params.user }]
   });
   const text = textFromAnthropicContent(response.content).trim();
@@ -70,7 +71,7 @@ export async function anthropicChatWithWebSearch(params: {
     system: params.system,
     tools,
     messages: [{ role: 'user', content: params.user }],
-    temperature: 0.2
+    ...anthropicTemperatureOption(params.model, 0.2)
   });
   const text = textFromAnthropicContent(response.content).trim();
   return {
