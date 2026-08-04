@@ -9,17 +9,21 @@ import {
   applyNormUpdatesToDocx,
   type NormUpdateApplyResult
 } from '@/lib/norms-update/apply-docx';
+import {
+  buildNormApplicationSummary,
+  hasApplicableNormUpdates,
+} from '@/lib/norms-update/apply-policy';
 
-function incompleteApplicationResponse(result: NormUpdateApplyResult) {
+function noApplicableUpdatesResponse(result: NormUpdateApplyResult) {
   console.warn(
-    `[NORMS-APPLY] Aborting partial application: ${result.appliedCount}/${result.totalCount} matched`,
+    `[NORMS-APPLY] No selected suggestion matched: 0/${result.totalCount}`,
     result.failures
   );
 
   return NextResponse.json(
     {
       error:
-        `Não foi possível localizar ${result.failures.length} das ${result.totalCount} sugestões selecionadas no arquivo Word. `
+        `Não foi possível localizar nenhuma das ${result.totalCount} sugestões selecionadas no arquivo Word. `
         + 'Nenhuma nova versão foi criada. Reabra a revisão ou tente novamente a partir da versão original.',
       requestedCount: result.totalCount,
       matchedCount: result.appliedCount,
@@ -119,11 +123,18 @@ export async function POST(
         tempOutputPath,
         acceptedReferences
       );
-      if (applyResult.failures.length > 0) {
+      if (!hasApplicableNormUpdates(applyResult)) {
         await fs.unlink(tempInputPath).catch(() => {});
         await fs.unlink(tempOutputPath).catch(() => {});
-        return incompleteApplicationResponse(applyResult);
+        return noApplicableUpdatesResponse(applyResult);
       }
+      if (applyResult.failures.length > 0) {
+        console.warn(
+          `[NORMS-APPLY] Continuing partial application: ${applyResult.appliedCount}/${applyResult.totalCount} matched`,
+          applyResult.failures
+        );
+      }
+      const applicationSummary = buildNormApplicationSummary(applyResult);
 
       const { data: chapter } = await supabase
         .from('chapters')
@@ -160,20 +171,12 @@ export async function POST(
           ? {
               appliedFindingIds: applyResult.appliedReferenceIds,
               reviewJobId: jobId,
-              applicationSummary: {
-                requestedSuggestions: applyResult.totalCount,
-                appliedSuggestions: applyResult.appliedCount,
-                changedParagraphs: applyResult.changedParagraphIndexes.length
-              }
+              applicationSummary
             }
           : {
               appliedNormIds: applyResult.appliedReferenceIds,
               normsJobId: jobId,
-              applicationSummary: {
-                requestedSuggestions: applyResult.totalCount,
-                appliedSuggestions: applyResult.appliedCount,
-                changedParagraphs: applyResult.changedParagraphIndexes.length
-              }
+              applicationSummary
             }
       });
 
@@ -188,14 +191,12 @@ export async function POST(
         success: true,
         chapterId,
         newVersionId,
-        applicationSummary: {
-          requestedSuggestions: applyResult.totalCount,
-          appliedSuggestions: applyResult.appliedCount,
-          changedParagraphs: applyResult.changedParagraphIndexes.length
-        },
-        message: isCurrentnessReview
-          ? 'Atualizações aplicadas. Nova versão do capítulo criada.'
-          : 'Normas aplicadas. Nova versão do capítulo criada.'
+        applicationSummary,
+        message: applyResult.failures.length > 0
+          ? `${applyResult.appliedCount} sugestões aplicadas e ${applyResult.failures.length} não localizadas. Nova versão do capítulo criada.`
+          : isCurrentnessReview
+            ? 'Atualizações aplicadas. Nova versão do capítulo criada.'
+            : 'Normas aplicadas. Nova versão do capítulo criada.'
       });
     }
 
@@ -240,10 +241,16 @@ export async function POST(
       tempOutputPath,
       acceptedReferences
     );
-    if (applyResult.failures.length > 0) {
+    if (!hasApplicableNormUpdates(applyResult)) {
       await fs.unlink(tempInputPath).catch(() => {});
       await fs.unlink(tempOutputPath).catch(() => {});
-      return incompleteApplicationResponse(applyResult);
+      return noApplicableUpdatesResponse(applyResult);
+    }
+    if (applyResult.failures.length > 0) {
+      console.warn(
+        `[NORMS-APPLY] Continuing partial document application: ${applyResult.appliedCount}/${applyResult.totalCount} matched`,
+        applyResult.failures
+      );
     }
 
     const updatedBuffer = await fs.readFile(tempOutputPath);
@@ -262,6 +269,8 @@ export async function POST(
         'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'Content-Disposition': `attachment; filename="${sanitizedTitle}_${isCurrentnessReview ? 'revisado' : 'normas_atualizadas'}.docx"`,
         'X-Autoria-Applied-Suggestions': String(applyResult.appliedCount),
+        'X-Autoria-Unmatched-Suggestions': String(applyResult.failures.length),
+        'X-Autoria-Unmatched-Reference-Ids': applyResult.failures.map((failure) => failure.referenceId).join(','),
         'X-Autoria-Changed-Paragraphs': String(applyResult.changedParagraphIndexes.length)
       }
     });

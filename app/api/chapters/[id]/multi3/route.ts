@@ -3,6 +3,7 @@ import { startChapterMulti3 } from '@/lib/multi-ai/orchestrator';
 import { listMulti3Sessions } from '@/lib/multi-ai/session-store';
 import { Multi3StartRequest } from '@/lib/multi-ai/types';
 import { AIProvider } from '@/lib/ai/types';
+import { isValidTodosProviderSelection } from '@/lib/multi-ai/models';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,8 +38,14 @@ export async function POST(
       models: body.models,
     };
 
-    if (!startReq.versionId || !startReq.providers?.length || !startReq.command) {
+    if (!startReq.versionId || !startReq.command) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+    if (startReq.command !== '/todos' || !isValidTodosProviderSelection(startReq.providers)) {
+      return NextResponse.json(
+        { error: 'O comando /todos exige exatamente 3 provedores diferentes.' },
+        { status: 400 }
+      );
     }
 
     const session = await startChapterMulti3(chapterId, startReq);

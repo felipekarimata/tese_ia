@@ -4,7 +4,7 @@ export const BOOK_COMMAND_NAMES = [
   '/ajustar',
   '/aprimorar',
   '/finalizar',
-  '/livro',
+  '/todos',
 ] as const;
 
 export type BookCommandName = (typeof BOOK_COMMAND_NAMES)[number];
@@ -48,10 +48,10 @@ export const BOOK_COMMANDS: readonly BookCommandDefinition[] = [
     description: 'Revisa coesão, continuidade e registro final de livro.',
   },
   {
-    name: '/livro',
-    args: '<instrução P3>',
-    example: '/livro preservar a conclusão original',
-    description: 'Executa os cinco passos, com aprovação explícita entre eles.',
+    name: '/todos',
+    args: '',
+    example: '/todos',
+    description: 'Executa traduzir, revisar, aprimorar e finalizar com três IAs e um juiz.',
   },
 ] as const;
 

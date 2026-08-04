@@ -23,6 +23,7 @@ import {
 } from '@/lib/skills/types';
 import { getDefaultPromptBuilder } from '@/lib/skills/defaults';
 import { validateCustomSkillName } from '@/lib/skills/resolver';
+import { BOOK_COMMANDS, CHAPTER_UTILITY_COMMANDS } from '@/lib/book-workflow/commands';
 import { Plus, RotateCcw, Trash2 } from 'lucide-react';
 
 const PLACEHOLDER_HINT =
@@ -70,11 +71,7 @@ export function SkillsSection({
   });
 
   const directKeys = useMemo(
-    () => BUILTIN_SKILL_KEYS.filter((k) => !k.startsWith('todos:')),
-    []
-  );
-  const todosKeys = useMemo(
-    () => BUILTIN_SKILL_KEYS.filter((k) => k.startsWith('todos:')),
+    () => BUILTIN_SKILL_KEYS.filter((key) => ['translate', 'review', 'adjust'].includes(key)),
     []
   );
 
@@ -185,8 +182,23 @@ export function SkillsSection({
 
       {tab === 'builtin' ? (
         <div className="space-y-6">
-          {renderBuiltinGroup(directKeys, 'Comandos diretos')}
-          {renderBuiltinGroup(todosKeys, 'Pipeline /todos')}
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-muted-foreground">Comandos ativos</p>
+            {[...BOOK_COMMANDS, ...CHAPTER_UTILITY_COMMANDS].map((command) => (
+              <div key={command.name} className="rounded-lg border px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <code className="font-medium text-indigo-300">
+                    {command.name}{command.args ? ` ${command.args}` : ''}
+                  </code>
+                  {command.name === '/todos' && (
+                    <Badge variant="outline">3 IAs + juiz</Badge>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{command.description}</p>
+              </div>
+            ))}
+          </div>
+          {renderBuiltinGroup(directKeys, 'Prompts editáveis compatíveis')}
         </div>
       ) : (
         <div className="space-y-6">

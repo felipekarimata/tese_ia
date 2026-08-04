@@ -155,8 +155,8 @@ export function CommandsCatalog({
           <ul className="list-disc list-inside space-y-1 text-xs">
             <li>Digite <Badge variant="outline" className="text-[10px] mx-1">/</Badge> no chat para ver autocomplete</li>
             <li>Enter envia · Shift+Enter quebra linha</li>
-            <li><code className="text-red-300">/livro continuar</code> confirma a aprovação do passo anterior e inicia o próximo</li>
-            <li><code className="text-red-300">/livro status</code> mostra o próximo passo; <code className="text-red-300">/livro reiniciar</code> descarta o estado salvo</li>
+            <li>Comandos individuais usam o provedor e o modelo selecionados no agente</li>
+            <li><code className="text-red-300">/todos</code> usa os três candidatos e o juiz definidos em Configurações</li>
           </ul>
         </div>
       )}

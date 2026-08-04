@@ -1,37 +1,57 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_MODELS } from '../lib/ai/model-registry';
-import { normalizeMulti3Settings, resolveMulti3Model } from '../lib/multi-ai/models';
-import { parseMulti3Input } from '../lib/multi-ai/parser';
+import {
+  DEFAULT_MULTI3_SETTINGS,
+  isValidTodosProviderSelection,
+  normalizeMulti3Settings,
+  resolveMulti3Model,
+} from '../lib/multi-ai/models';
+import { isMulti3Command, parseMulti3Input } from '../lib/multi-ai/parser';
 
 const defaults = {
-  providers: ['openai', 'gemini', 'anthropic', 'grok'] as const,
-  judgeProvider: 'gemini' as const,
+  providers: ['openai', 'gemini', 'anthropic'] as const,
+  judgeProvider: 'grok' as const,
 };
 
-test('uses configured providers when /3 has no explicit provider list', () => {
-  const suffix = parseMulti3Input('/revisar /3', { providers: [...defaults.providers], judgeProvider: defaults.judgeProvider });
-  const prefix = parseMulti3Input('/3 /revisar', { providers: [...defaults.providers], judgeProvider: defaults.judgeProvider });
-  const todos = parseMulti3Input('/todos /3', { providers: [...defaults.providers], judgeProvider: defaults.judgeProvider });
+test('/todos alone starts exactly three configured candidates and the configured judge', () => {
+  const parsed = parseMulti3Input('/todos', {
+    providers: [...defaults.providers],
+    judgeProvider: defaults.judgeProvider,
+  });
 
-  for (const parsed of [suffix, prefix, todos]) {
-    assert.equal(parsed.kind, 'start');
-    if (parsed.kind === 'start') assert.deepEqual(parsed.providers, [...defaults.providers]);
+  assert.equal(parsed.kind, 'start');
+  if (parsed.kind === 'start') {
+    assert.deepEqual(parsed.providers, [...defaults.providers]);
+    assert.equal(parsed.judgeProvider, 'grok');
+    assert.equal(parsed.command, '/todos');
+  }
+  assert.equal(isMulti3Command('/todos'), true);
+});
+
+test('legacy /3 combinations and /livro are no longer multi-AI commands', () => {
+  for (const input of ['/3', '/todos /3', '/3 /todos', '/revisar /3', '/livro']) {
+    assert.equal(parseMulti3Input(input, { providers: [...defaults.providers] }).kind, 'not_multi3');
   }
 });
 
-test('explicit providers override defaults before or after the command', () => {
-  const suffix = parseMulti3Input('/revisar /3 gemini openai', { providers: [...defaults.providers] });
-  const prefix = parseMulti3Input('/3 gemini,openai /revisar', { providers: [...defaults.providers] });
-
-  assert.equal(suffix.kind, 'start');
-  assert.equal(prefix.kind, 'start');
-  if (suffix.kind === 'start') assert.deepEqual(suffix.providers, ['gemini', 'openai']);
-  if (prefix.kind === 'start') assert.deepEqual(prefix.providers, ['gemini', 'openai']);
-  assert.equal(parseMulti3Input('/revisar /3 gemini', { providers: [...defaults.providers] }).kind, 'not_multi3');
+test('/todos requires exactly three different supported providers', () => {
+  assert.equal(parseMulti3Input('/todos', { providers: ['openai', 'gemini'] }).kind, 'not_multi3');
+  assert.equal(
+    parseMulti3Input('/todos', { providers: ['openai', 'gemini', 'anthropic', 'grok'] }).kind,
+    'not_multi3'
+  );
+  assert.equal(isValidTodosProviderSelection(['openai', 'gemini', 'anthropic']), true);
+  assert.equal(isValidTodosProviderSelection(['openai', 'openai', 'anthropic']), false);
 });
 
-test('OpenAI and configured /3 defaults resolve to GPT-5.6 Terra', () => {
+test('invalid persisted provider selection resets to OpenAI, Gemini and Claude', () => {
+  const settings = normalizeMulti3Settings({ defaultProviders: ['openai', 'grok'] });
+  assert.deepEqual(settings.defaultProviders, DEFAULT_MULTI3_SETTINGS.defaultProviders);
+  assert.deepEqual(settings.defaultProviders, ['openai', 'gemini', 'anthropic']);
+});
+
+test('OpenAI default for /todos resolves to GPT-5.6 Terra', () => {
   assert.equal(DEFAULT_MODELS.openai, 'gpt-5.6-terra');
   const settings = normalizeMulti3Settings(null, {
     openai: ['gpt-5.6-terra', 'gpt-5.6-sol'],

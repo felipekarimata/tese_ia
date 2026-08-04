@@ -14,26 +14,20 @@ export type CommandCategory = {
 };
 
 export const MULTI3_SHORT_DESCRIPTION =
-  'Use /3 antes ou depois de um comando para comparar vários modelos em paralelo.';
+  'Use /todos sozinho para executar quatro etapas editoriais com três IAs e um juiz.';
 
 export const MULTI3_PROVIDER_HINT =
-  'Sem nomes, usa os padrões de Configurações. Nomes explícitos substituem os padrões.';
+  'Os três candidatos, seus modelos e o juiz são definidos em Configurações.';
 
 export const MULTI3_COMMAND_EXAMPLES: CommandExample[] = [
-  { cmd: '/revisar /3', desc: 'Revisar com os provedores e modelos padrão' },
-  { cmd: '/ajustar expandir conclusão /3', desc: 'Aplicar /3 depois do comando' },
-  { cmd: '/3 /perguntar qual o tema deste capítulo', desc: 'Aplicar /3 antes do comando' },
-  { cmd: '/todos /3', desc: 'Pipeline completo com os padrões Multi-IA' },
-  { cmd: '/revisar /3 gemini openai', desc: 'Substituir os provedores padrão' },
-  { cmd: '/3 escolher gemini', desc: 'Aceitar candidato após comparar' },
-  { cmd: '/3 decidir openai', desc: 'Re-juizar com outro modelo' },
+  { cmd: '/todos', desc: 'Traduzir, revisar, aprimorar e finalizar com 3 IAs + juiz' },
 ];
 
 const BASE_CATALOG: CommandCategory[] = [
   {
     id: 'book-editorial-workflow',
-    title: 'Tese → livro',
-    description: 'Cinco etapas editoriais com revisão humana entre cada saída.',
+    title: 'Comandos editoriais',
+    description: 'Comandos individuais usam o modelo selecionado; /todos usa os três candidatos configurados.',
     examples: BOOK_COMMANDS.map((command) => ({
       cmd: command.example,
       desc: command.description,

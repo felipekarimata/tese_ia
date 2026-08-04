@@ -58,7 +58,7 @@ export async function runTodosPipeline(
       'translate',
       {
         ...baseMeta,
-        autoAppliedBy: config.multi3Meta ? '/todos /3' : '/todos',
+        autoAppliedBy: '/todos',
         targetLanguage: config.targetLanguage,
         multi3Step: 'translate',
         processingMode: translated.processingMode,
@@ -79,7 +79,7 @@ export async function runTodosPipeline(
       'adapt',
       {
         ...baseMeta,
-        autoAppliedBy: config.multi3Meta ? '/todos /3' : '/todos',
+        autoAppliedBy: '/todos',
         style: config.adaptStyle,
         multi3Step: 'adapt',
         processingMode: adapted.processingMode,
@@ -101,7 +101,7 @@ export async function runTodosPipeline(
         'update',
         {
           ...baseMeta,
-          autoAppliedBy: config.multi3Meta ? '/todos /3' : '/todos',
+          autoAppliedBy: '/todos',
           multi3Step: 'update',
         },
         setAsCurrent

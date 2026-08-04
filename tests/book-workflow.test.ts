@@ -5,9 +5,9 @@ import { getSlashCommandName, isBookCommand, isChapterUtilityCommand } from '../
 import { sanitizeEditorialText } from '../lib/book-workflow/output';
 
 test('only the six editorial slash commands are active', () => {
-  assert.equal(isBookCommand('/livro'), true);
+  assert.equal(isBookCommand('/livro'), false);
   assert.equal(isBookCommand('/aprimorar'), true);
-  assert.equal(isBookCommand('/todos'), false);
+  assert.equal(isBookCommand('/todos'), true);
   assert.equal(isBookCommand('/3'), false);
   assert.equal(isBookCommand('/comparar'), false);
   assert.equal(isChapterUtilityCommand('/comparar'), true);

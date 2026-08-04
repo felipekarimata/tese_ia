@@ -24,7 +24,7 @@ export async function createChapterVersionFromFile(
   chapterId: string,
   parentVersionId: string,
   filePath: string,
-  operation: 'translate' | 'adapt' | 'update' | 'adjust',
+  operation: 'translate' | 'adapt' | 'update' | 'adjust' | 'improve',
   metadata: Record<string, unknown> = {},
   setAsCurrent = true
 ): Promise<string> {
