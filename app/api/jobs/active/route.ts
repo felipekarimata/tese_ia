@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { jsonNoStore } from '@/lib/json-no-store-response';
 import { isCancellationErrorMessage } from '@/lib/job-cancellation';
+import { multi3OverallProgress } from '@/lib/multi-ai/progress';
 import { getMulti3FailureMessage } from '@/lib/multi-ai/errors';
 
 export const dynamic = 'force-dynamic';
@@ -41,17 +42,10 @@ function normalizeMulti3Status(raw: string, judgeReasoning?: string | null): Act
 }
 
 function multi3Progress(session: Record<string, unknown>): number {
-  const candidates = (session.candidates as any[]) || [];
-  const total = candidates.length || 3;
-  const done = candidates.filter((c) => c.status === 'completed').length;
-  const failed = candidates.filter((c) => c.status === 'failed').length;
-  const status = String(session.status || 'running');
-
-  if (status === 'accepted' || status === 'awaiting_human') return 100;
-  if (status === 'failed') return Math.min(100, Math.round(((done + failed) / total) * 100));
-  if (status === 'judging') return 90;
-  if (status === 'candidates_ready') return 85;
-  return Math.round((done / total) * 80);
+  return multi3OverallProgress({
+    status: String(session.status || 'running'),
+    candidates: (session.candidates as any[]) || [],
+  });
 }
 
 function normalizeStatus(raw: string, errorMessage?: string | null): ActiveJob['status'] {

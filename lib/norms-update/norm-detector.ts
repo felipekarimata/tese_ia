@@ -10,7 +10,8 @@ export async function detectNormsInDocument(
   paragraphs: Array<{ text: string; index: number; chapterTitle?: string }>,
   provider: 'openai' | 'gemini' | 'anthropic',
   model: string,
-  apiKey: string
+  apiKey: string,
+  onProgress?: (currentBatch: number, totalBatches: number) => void | Promise<void>
 ): Promise<NormReference[]> {
 
   // Processa em batches de 20 parágrafos
@@ -240,6 +241,11 @@ Retorne APENAS o JSON.`;
         type: 'EXCEPTION',
         details: `${error.message}\n${error.stack || ''}`
       });
+    } finally {
+      await onProgress?.(
+        Math.floor(i / batchSize) + 1,
+        Math.max(1, Math.ceil(paragraphs.length / batchSize))
+      );
     }
   }
 

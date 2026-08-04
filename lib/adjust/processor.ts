@@ -29,7 +29,8 @@ export async function analyzeDocumentForAdjustments(
   /** Optional checkpoint that throws if the caller wants to abort.
    * Called between sections AND between batches inside each section. */
   cancelCheck?: () => void,
-  skillContext: SkillContext = 'direct'
+  skillContext: SkillContext = 'direct',
+  onProgress?: (currentBatch: number, totalBatches: number) => void | Promise<void>
 ): Promise<AdjustSuggestion[]> {
   console.log('[ADJUST] Extracting document structure...');
 
@@ -43,6 +44,13 @@ export async function analyzeDocumentForAdjustments(
 
   // Process in batches
   const BATCH_SIZE = 20;
+  const totalBatches = structure.sections.reduce((total, section) => {
+    const paragraphCount = paragraphs
+      .slice(section.startParagraphIndex, section.endParagraphIndex + 1)
+      .filter((paragraph) => !paragraph.isHeader).length;
+    return total + Math.ceil(paragraphCount / BATCH_SIZE);
+  }, 0);
+  let completedBatches = 0;
 
   for (let i = 0; i < structure.sections.length; i++) {
     cancelCheck?.();
@@ -73,6 +81,8 @@ export async function analyzeDocumentForAdjustments(
       );
 
       allSuggestions.push(...suggestions);
+      completedBatches += 1;
+      await onProgress?.(completedBatches, Math.max(1, totalBatches));
     }
   }
 

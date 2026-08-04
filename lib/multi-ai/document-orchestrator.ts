@@ -134,7 +134,18 @@ async function runDocumentMulti3Pipeline(
         branchIndex,
         progress: 5,
         progressLabel: 'Iniciando...',
+        stage: 'starting',
+        stageProgress: 0,
       });
+
+      const heartbeat = setInterval(() => {
+        void patchMulti3Candidate(sessionId, branchIndex, {
+          provider,
+          model,
+          status: 'running',
+          branchIndex,
+        }).catch((error) => console.warn(`[DOC-MULTI3 ${sessionId}] heartbeat`, error));
+      }, 30_000);
 
       const done = async (candidate: Multi3Candidate) => {
         await patchMulti3Candidate(sessionId, branchIndex, candidate);
@@ -172,6 +183,20 @@ async function runDocumentMulti3Pipeline(
             model,
             targetLanguage: 'pt',
             deferPersist: true,
+            onProgress: async (progress) => {
+              await patchMulti3Candidate(sessionId, branchIndex, {
+                provider,
+                model,
+                status: 'running',
+                branchIndex,
+                progress: progress.progress,
+                progressLabel: progress.label,
+                stage: progress.stage,
+                stageProgress: progress.stageProgress,
+                currentBatch: progress.currentBatch,
+                totalBatches: progress.totalBatches,
+              });
+            },
           });
           if (todosResult.finalPath) {
             try {
@@ -190,6 +215,9 @@ async function runDocumentMulti3Pipeline(
                 progress: 100,
                 versionIds: todosResult.stepPaths,
                 versionId: archivedPath,
+                progressLabel: '/todos concluído: traduzir → revisar → aprimorar → finalizar',
+                stage: 'completed',
+                stageProgress: 100,
               });
             } finally {
               await fs.unlink(todosResult.finalPath).catch(() => {});
@@ -260,18 +288,21 @@ async function runDocumentMulti3Pipeline(
           });
         }
         return done({ provider, model, status: 'failed' as const, branchIndex, error: error.message });
+      } finally {
+        clearInterval(heartbeat);
       }
     })
   );
 
-  await updateMulti3Session(sessionId, { candidates, status: 'candidates_ready' });
+  const persistedCandidates = (await getMulti3Session(sessionId))?.candidates || candidates;
+  await updateMulti3Session(sessionId, { candidates: persistedCandidates, status: 'candidates_ready' });
 
-  const completed = candidates.filter((c) => c.status === 'completed');
+  const completed = persistedCandidates.filter((c) => c.status === 'completed');
   if (completed.length === 0) {
     await updateMulti3Session(sessionId, {
       status: 'failed',
       completedAt: new Date().toISOString(),
-      judgeReasoning: getMulti3FailureMessage({ candidates, status: 'failed' }),
+      judgeReasoning: getMulti3FailureMessage({ candidates: persistedCandidates, status: 'failed' }),
     });
     return;
   }
