@@ -133,6 +133,8 @@ test('cria um DOCX final a partir do conteúdo integral de todos os candidatos',
   assert.match(generatedPrompt, /Versão OpenAI/);
   assert.match(generatedPrompt, /Versão Gemini/);
   assert.match(generatedPrompt, /Versão Claude/);
+  assert.match(generatedPrompt, /já está bem redigido em português brasileiro/);
+  assert.match(generatedPrompt, /Não retraduza palavras/);
   assert.equal(appliedInput, 'gemini.docx');
   assert.equal(appliedSuggestions.length, 2);
   assert.equal(generateCalls, 2);

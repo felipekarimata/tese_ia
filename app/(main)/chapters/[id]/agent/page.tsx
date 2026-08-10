@@ -5,7 +5,16 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ArrowLeft, Send, FileText, PanelLeftClose, PanelLeftOpen, Sparkles,
@@ -37,6 +46,10 @@ import {
 } from '@/lib/agent/skill-dispatch';
 import type { Multi3Session } from '@/lib/multi-ai/types';
 import { ChapterDocumentEditor } from '@/components/document/chapter-document-editor';
+import {
+  chapterVersionLabel,
+  chapterVersionSelectorGroups,
+} from '@/lib/thesis/version-labels';
 import {
   BOOK_COMMANDS as BOOK_COMMAND_DEFINITIONS,
   CHAPTER_UTILITY_COMMANDS,
@@ -183,6 +196,7 @@ export default function AgentModePage() {
   const [chapter, setChapter] = useState<Chapter | null>(null);
   const [versions, setVersions] = useState<ChapterVersion[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>('');
+  const [showAllVersions, setShowAllVersions] = useState(false);
   const [docText, setDocText] = useState<string>('');
   const [loadingChapter, setLoadingChapter] = useState(true);
 
@@ -346,6 +360,10 @@ export default function AgentModePage() {
 
   const currentVersion = versions.find((v) => v.id === selectedVersionId) ?? null;
   const originalVersion = versions[0] ?? null;
+  const versionSelectorGroups = useMemo(
+    () => chapterVersionSelectorGroups(versions, selectedVersionId),
+    [versions, selectedVersionId]
+  );
 
   const currentAI = selectedModel
     ? { provider: selectedProvider, model: selectedModel }
@@ -1621,13 +1639,60 @@ export default function AgentModePage() {
 
           {/* Version selector */}
           <Select value={selectedVersionId} onValueChange={setSelectedVersionId}>
-            <SelectTrigger className="w-[130px] h-9 bg-white/5 border-white/10 text-sm">
+            <SelectTrigger className="w-[280px] max-w-[38vw] h-9 bg-white/5 border-white/10 text-sm" title={currentVersion ? chapterVersionLabel(currentVersion) : 'Versão'}>
               <SelectValue placeholder="Versão" />
             </SelectTrigger>
-            <SelectContent>
-              {versions.map((v) => (
-                <SelectItem key={v.id} value={v.id}>v{v.versionNumber} {v.isCurrent && '· atual'}</SelectItem>
-              ))}
+            <SelectContent className="min-w-[320px]">
+              <SelectGroup>
+                <SelectLabel className="pl-2 text-xs text-gray-500">
+                  {versionSelectorGroups.hasMulti3Finals ? 'Finais do último /todos' : 'Versões'}
+                </SelectLabel>
+                {versionSelectorGroups.primary.map((version) => (
+                  <SelectItem key={version.id} value={version.id}>
+                    {chapterVersionLabel(version)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+
+              {versionSelectorGroups.secondary.length > 0 && (
+                <>
+                  <SelectSeparator />
+                  {!showAllVersions ? (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-indigo-300 outline-none hover:bg-accent hover:text-accent-foreground"
+                      onPointerDown={(event) => event.preventDefault()}
+                      onClick={() => setShowAllVersions(true)}
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                      Mostrar todas as versões ({versionSelectorGroups.secondary.length})…
+                    </button>
+                  ) : (
+                    <>
+                      <SelectGroup>
+                        <SelectLabel className="pl-2 text-xs text-gray-500">
+                          Versões intermediárias e anteriores
+                        </SelectLabel>
+                        {versionSelectorGroups.secondary.map((version) => (
+                          <SelectItem key={version.id} value={version.id}>
+                            {chapterVersionLabel(version)}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                      <SelectSeparator />
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-gray-400 outline-none hover:bg-accent hover:text-accent-foreground"
+                        onPointerDown={(event) => event.preventDefault()}
+                        onClick={() => setShowAllVersions(false)}
+                      >
+                        <ChevronUp className="h-3.5 w-3.5" />
+                        Ocultar versões intermediárias
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
             </SelectContent>
           </Select>
 
