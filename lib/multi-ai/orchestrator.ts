@@ -41,12 +41,10 @@ import { analyzeDocumentForAdaptation } from '@/lib/adapt/processor';
 import { analyzeDocumentForAdjustments } from '@/lib/adjust/processor';
 import { applySuggestionsToDocx, type ApplyDocxSuggestion } from '@/lib/translation/docx-translator';
 import { extractDocumentStructure } from '@/lib/improvement/document-analyzer';
-import { detectNormsInDocument } from '@/lib/norms-update/norm-detector';
-import { verifyMultipleNorms } from '@/lib/norms-update/norm-verifier';
-import { applyNormUpdatesToDocx } from '@/lib/norms-update/apply-docx';
 import { chatWithAgent } from '@/lib/ai/agent-chat';
 import { supabase } from '@/lib/supabase';
 import { BOOK_FINALIZE_INSTRUCTIONS, BOOK_IMPROVE_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
+import { runTodosCurrentnessReviewStep } from '@/lib/todos/currentness-review-step';
 
 const STYLE_MAP: Record<string, 'academic' | 'professional' | 'simplified'> = {
   acadêmico: 'academic', academico: 'academic', academic: 'academic',
@@ -730,7 +728,8 @@ async function runRevisarCandidate(
   sessionId: string,
   onProgress?: CandidateStepProgress
 ): Promise<Multi3Candidate> {
-  multi3CancelCheck(sessionId)();
+  const cancelCheck = multi3CancelCheck(sessionId);
+  cancelCheck();
   const { data: ver } = await supabase.from('chapter_versions').select('file_path').eq('id', versionId).single();
   if (!ver) throw new Error('Versão não encontrada');
 
@@ -738,69 +737,39 @@ async function runRevisarCandidate(
   const outputPath = path.join(os.tmpdir(), `${randomUUID()}_revisar.docx`);
 
   try {
-    const { structure, paragraphs } = await extractDocumentStructure(inputPath);
-    const paragraphsWithContext = paragraphs
-      .filter((p) => !p.isHeader)
-      .map((p) => ({
-        text: p.text,
-        index: p.index,
-        chapterTitle: structure.sections.find((s) =>
-          p.index >= s.startParagraphIndex && p.index <= s.endParagraphIndex && s.level === 1
-        )?.title,
-      }));
-
-    const normsProvider: 'openai' | 'gemini' | 'anthropic' =
-      provider === 'grok' ? 'gemini' : provider;
-    const normsModel = provider === 'grok' ? 'gemini-2.5-flash' : model;
-    const apiKey = getApiKey(normsProvider);
-
-    const references = await detectNormsInDocument(
-      paragraphsWithContext,
-      normsProvider,
-      normsModel,
-      apiKey,
-      async (currentBatch, totalBatches) => {
+    const reviewResult = await runTodosCurrentnessReviewStep({
+      inputPath,
+      outputPath,
+      provider,
+      model,
+      apiKey: getApiKey(provider),
+      onLog: (message) => {
+        console.log(`[MULTI3 ${sessionId}] /todos revisar ${provider}/${model}: ${message}`);
+      },
+      onProgress: async (progress) => {
+        cancelCheck();
         await onProgress?.(
-          Math.round((currentBatch / Math.max(1, totalBatches)) * 55),
-          `Detectando referências — lote ${currentBatch}/${totalBatches}`,
-          currentBatch,
-          totalBatches
+          progress.percentage,
+          progress.label,
+          progress.current,
+          progress.total
         );
-      }
-    );
-
-    if (references.length === 0) {
-      await fs.copyFile(inputPath, outputPath);
-    } else {
-      const verified = await verifyMultipleNorms(
-        references,
-        normsProvider,
-        normsModel,
-        apiKey,
-        undefined,
-        (current, total) => {
-          void onProgress?.(
-            55 + Math.round((current / Math.max(1, total)) * 40),
-            `Verificando referência ${current}/${total}`,
-            current,
-            total
-          );
-        }
-      );
-      const toApply = verified.filter((r) => r.suggestedText);
-      if (toApply.length === 0) {
-        await fs.copyFile(inputPath, outputPath);
-      } else {
-        await applyNormUpdatesToDocx(inputPath, outputPath, toApply);
-      }
-    }
+      },
+    });
 
     const newVersionId = await createChapterVersionFromFile(
       chapterId,
       versionId,
       outputPath,
       'update',
-      { ...meta, multi3AutoApplied: true },
+      {
+        ...meta,
+        multi3AutoApplied: true,
+        reviewScope: 'currentness',
+        researchDepth: 'deep',
+        currentnessFindings: reviewResult.findings.length,
+        currentnessApplied: reviewResult.applyResult?.appliedCount ?? 0,
+      },
       false
     );
 

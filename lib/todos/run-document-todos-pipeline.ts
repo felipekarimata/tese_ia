@@ -12,15 +12,13 @@ import { translateDocx } from '@/lib/translation/docx-translator';
 import { analyzeDocumentForAdjustments } from '@/lib/adjust/processor';
 import { applySuggestionsToDocx, type ApplyDocxSuggestion } from '@/lib/translation/docx-translator';
 import { extractDocumentStructure } from '@/lib/improvement/document-analyzer';
-import { detectNormsInDocument } from '@/lib/norms-update/norm-detector';
-import { verifyMultipleNorms } from '@/lib/norms-update/norm-verifier';
-import { applyNormUpdatesToDocx } from '@/lib/norms-update/apply-docx';
 import { AIProvider } from '@/lib/ai/types';
 import { SupportedLanguage } from '@/lib/translation/types';
 import { getApiKey } from '@/lib/multi-ai/chapter-helpers';
 import { BOOK_FINALIZE_INSTRUCTIONS, BOOK_IMPROVE_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
 import { stageOverallProgress } from '@/lib/multi-ai/progress';
 import type { Multi3TodosStage } from '@/lib/multi-ai/types';
+import { runTodosCurrentnessReviewStep } from '@/lib/todos/currentness-review-step';
 
 type DocumentTodosStage = Exclude<Multi3TodosStage, 'starting' | 'completed'>;
 
@@ -187,69 +185,29 @@ export async function runTodosPipeline(
 
     // Review
     await report('review', 0, 'Preparando revisão de vigência, fatos e dados');
-    const normsPath = path.join(os.tmpdir(), `${randomUUID()}_nm.docx`);
-    tempPaths.push(normsPath);
-    const { structure, paragraphs } = await extractDocumentStructure(currentPath);
-    const paragraphsWithContext = paragraphs
-      .filter((p) => !p.isHeader)
-      .map((p) => ({
-        text: p.text,
-        index: p.index,
-        chapterTitle: structure.sections.find((s) =>
-          p.index >= s.startParagraphIndex && p.index <= s.endParagraphIndex && s.level === 1
-        )?.title,
-      }));
-
-    const normsProvider: 'openai' | 'gemini' | 'anthropic' =
-      config.provider === 'grok' ? 'gemini' : config.provider;
-    const normsModel = config.provider === 'grok' ? 'gemini-2.5-flash' : config.model;
-    const references = await detectNormsInDocument(
-      paragraphsWithContext,
-      normsProvider,
-      normsModel,
-      getApiKey(normsProvider),
-      async (currentBatch, totalBatches) => {
-        await report(
-          'review',
-          Math.round((currentBatch / Math.max(1, totalBatches)) * 55),
-          `Detectando referências — lote ${currentBatch}/${totalBatches}`,
-          currentBatch,
-          totalBatches
-        );
-      }
-    );
-
-    if (references.length === 0) {
-      await fs.copyFile(currentPath, normsPath);
-    } else {
-      const verified = await verifyMultipleNorms(
-        references,
-        normsProvider,
-        normsModel,
-        getApiKey(normsProvider),
-        undefined,
-        (current, total) => {
-          void report(
-            'review',
-            55 + Math.round((current / Math.max(1, total)) * 40),
-            `Verificando referência ${current}/${total}`,
-            current,
-            total
-          ).catch((error) => console.warn('[TODOS PROGRESS] review', error));
-        }
-      );
-      const toApply = verified.filter((r) => r.suggestedText);
-      if (toApply.length === 0) {
-        await fs.copyFile(currentPath, normsPath);
-      } else {
-        await applyNormUpdatesToDocx(currentPath, normsPath, toApply);
-      }
-    }
-    stepPaths.push(normsPath);
-    await report('review', 100, 'Revisão concluída');
+    const reviewedPath = path.join(os.tmpdir(), `${randomUUID()}_rv.docx`);
+    tempPaths.push(reviewedPath);
+    await runTodosCurrentnessReviewStep({
+      inputPath: currentPath,
+      outputPath: reviewedPath,
+      provider: config.provider,
+      model: config.model,
+      apiKey: getApiKey(config.provider),
+      onLog: (message) => {
+        console.log(`[TODOS REVIEW] ${config.provider}/${config.model}: ${message}`);
+      },
+      onProgress: (progress) => report(
+        'review',
+        progress.percentage,
+        progress.label,
+        progress.current,
+        progress.total
+      ),
+    });
+    stepPaths.push(reviewedPath);
 
     if (!config.deferPersist) {
-      const buf = await fs.readFile(normsPath);
+      const buf = await fs.readFile(reviewedPath);
       await persistDocumentVersion({
         documentId,
         title: doc.title,
@@ -261,7 +219,7 @@ export async function runTodosPipeline(
 
     // Improve
     await report('improve', 0, 'Preparando aprimoramento de conteúdo e fontes');
-    currentPath = normsPath;
+    currentPath = reviewedPath;
     const improvedPath = path.join(os.tmpdir(), `${randomUUID()}_im.docx`);
     tempPaths.push(improvedPath);
     await runEditorialAdjustStep(
