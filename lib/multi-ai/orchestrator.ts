@@ -67,10 +67,17 @@ const LANGUAGE_MAP: Record<string, string> = {
   espanhol: 'es', spanish: 'es', es: 'es',
 };
 
-function multi3Meta(sessionId: string, provider: AIProvider, branchIndex: number, command: Multi3Command) {
+function multi3Meta(
+  sessionId: string,
+  provider: AIProvider,
+  model: string,
+  branchIndex: number,
+  command: Multi3Command
+) {
   return {
     multi3SessionId: sessionId,
     multi3Provider: provider,
+    multi3Model: model,
     multi3Role: 'candidate',
     multi3Command: command,
     multi3BranchIndex: branchIndex,
@@ -393,7 +400,7 @@ async function runSingleCandidate(
   branchIndex: number
 ): Promise<Multi3Candidate> {
   const model = req.models?.[provider] || multi3DefaultModel(provider);
-  const meta = multi3Meta(sessionId, provider, branchIndex, req.command);
+  const meta = multi3Meta(sessionId, provider, model, branchIndex, req.command);
 
   try {
     switch (req.command) {
