@@ -15,6 +15,7 @@ import { verifyMultipleNorms } from '@/lib/norms-update/norm-verifier';
 import { applyNormUpdatesToDocx } from '@/lib/norms-update/apply-docx';
 import { NormReference } from '@/lib/norms-update/types';
 import { runTransformWithMode } from '@/lib/document-processing/run-transform';
+import { BOOK_TECHNICAL_GLOSSARY } from '@/lib/book-workflow/prompts';
 import {
   createChapterVersionFromFile,
   downloadChapterVersionFile,
@@ -141,6 +142,7 @@ async function runTranslateStep(
       model: config.model,
       targetLanguage: config.targetLanguage,
       skillContext: 'todos',
+      editorialProfile: 'book-ptbr',
     });
 
     if (transform.usedWhole) {
@@ -161,6 +163,9 @@ async function runTranslateStep(
       targetLanguage: config.targetLanguage,
       provider: config.provider,
       model: config.model,
+      preserveNotes: true,
+      editorialProfile: 'book-ptbr',
+      glossary: BOOK_TECHNICAL_GLOSSARY,
       onProgress: async (progress) => {
         await updateOperationJob(jobId, {
           status: 'processing',

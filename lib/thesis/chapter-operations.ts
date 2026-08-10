@@ -24,6 +24,7 @@ import os from 'os';
 import { randomUUID } from 'crypto';
 import { BOOK_TRANSLATION_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
 import { sanitizeEditorialText } from '@/lib/book-workflow/output';
+import { assessPortugueseDocument } from '@/lib/translation/language-gate';
 
 export type ChapterOperation = 'improve' | 'translate' | 'adjust' | 'adapt' | 'update';
 
@@ -377,13 +378,21 @@ export async function executeTranslateOperation(
     // Generate translation suggestions
     console.log(`[CHAPTER-TRANSLATE] Generating translation suggestions to ${targetLanguage}...`);
 
-    const { extractDocumentStructure } = await import('@/lib/improvement/document-analyzer');
     const { structure, paragraphs } = await extractDocumentStructure(sourcePath);
 
     const allSuggestions: any[] = [];
     const BATCH_SIZE = 10; // Smaller batches for translation
+    const languageAssessment = assessPortugueseDocument(paragraphs.map((paragraph) => paragraph.text));
+    const skipTranslation = targetLanguage === 'pt'
+      && editorialProfile === 'book-ptbr'
+      && languageAssessment.shouldSkipTranslation;
 
-    for (let i = 0; i < structure.sections.length; i++) {
+    if (skipTranslation) {
+      console.log('[CHAPTER-TRANSLATE] Document already in pt-BR; skipping AI translation.');
+      await updateOperationJob(jobId, { progress: 75 });
+    }
+
+    for (let i = 0; !skipTranslation && i < structure.sections.length; i++) {
       // Cancellation checkpoint between sections — stops before paying for next section's batches
       throwIfCancelled(jobId);
 
@@ -432,7 +441,12 @@ export async function executeTranslateOperation(
       versionId,
       sourcePath, // Use source path as placeholder
       'translate',
-      { targetLanguage, sourceLanguage, suggestionsCount: allSuggestions.length }
+      {
+        targetLanguage,
+        sourceLanguage,
+        suggestionsCount: allSuggestions.length,
+        translationSkipped: skipTranslation,
+      }
     );
 
     await updateOperationJob(jobId, { progress: 85 });
@@ -453,6 +467,7 @@ export async function executeTranslateOperation(
         metadata: {
           targetLanguage,
           sourceLanguage,
+          translationSkipped: skipTranslation,
           suggestions: allSuggestions.map((s: any) => ({
             id: s.id,
             type: 'translation',

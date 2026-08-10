@@ -15,7 +15,11 @@ import { extractDocumentStructure } from '@/lib/improvement/document-analyzer';
 import { AIProvider } from '@/lib/ai/types';
 import { SupportedLanguage } from '@/lib/translation/types';
 import { getApiKey } from '@/lib/multi-ai/chapter-helpers';
-import { BOOK_FINALIZE_INSTRUCTIONS, BOOK_IMPROVE_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
+import {
+  BOOK_FINALIZE_INSTRUCTIONS,
+  BOOK_IMPROVE_INSTRUCTIONS,
+  BOOK_TECHNICAL_GLOSSARY,
+} from '@/lib/book-workflow/prompts';
 import { stageOverallProgress } from '@/lib/multi-ai/progress';
 import type { Multi3TodosStage } from '@/lib/multi-ai/types';
 import { runTodosCurrentnessReviewStep } from '@/lib/todos/currentness-review-step';
@@ -148,12 +152,17 @@ export async function runTodosPipeline(
       model: config.model,
       targetLanguage: config.targetLanguage,
       skillContext: 'todos',
+      editorialProfile: 'book-ptbr',
     });
+    let translationSkipped = Boolean(trTransform.wholeResult?.skippedAlreadyTargetLanguage);
     if (trTransform.runBatches) {
       const r = await translateDocx(currentPath, translatedPath, {
         targetLanguage: config.targetLanguage,
         provider: config.provider,
         model: config.model,
+        preserveNotes: true,
+        editorialProfile: 'book-ptbr',
+        glossary: BOOK_TECHNICAL_GLOSSARY,
         onProgress: (translationProgress) => {
           void report(
             'translate',
@@ -165,12 +174,19 @@ export async function runTodosPipeline(
         },
       });
       if (!r.success) throw new Error(r.error || 'translate failed');
+      translationSkipped = Boolean(r.skippedAlreadyTargetLanguage);
     } else if (!trTransform.usedWhole) {
       throw new Error(trTransform.wholeError || 'translate failed');
     }
     currentPath = translatedPath;
     stepPaths.push(translatedPath);
-    await report('translate', 100, 'Tradução concluída');
+    await report(
+      'translate',
+      100,
+      translationSkipped
+        ? 'Documento já está em pt-BR; tradução por IA dispensada'
+        : 'Tradução concluída'
+    );
 
     if (!config.deferPersist) {
       const buf = await fs.readFile(translatedPath);

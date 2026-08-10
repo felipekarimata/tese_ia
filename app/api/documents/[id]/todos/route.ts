@@ -149,6 +149,7 @@ async function runTranslateStep(
     provider: config.provider,
     model: config.model,
     sourceDocumentPath: sourcePath,
+    editorialProfile: 'book-ptbr',
   });
 
   await executeTranslation(jobId, documentId, doc, {
@@ -157,6 +158,7 @@ async function runTranslateStep(
     provider: config.provider,
     model: config.model,
     sourceDocumentPath: sourcePath,
+    editorialProfile: 'book-ptbr',
   });
 
   const { data: job, error } = await supabase

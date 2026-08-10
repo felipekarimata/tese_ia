@@ -48,7 +48,11 @@ import { applySuggestionsToDocx, type ApplyDocxSuggestion } from '@/lib/translat
 import { extractDocumentStructure } from '@/lib/improvement/document-analyzer';
 import { chatWithAgent } from '@/lib/ai/agent-chat';
 import { supabase } from '@/lib/supabase';
-import { BOOK_FINALIZE_INSTRUCTIONS, BOOK_IMPROVE_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
+import {
+  BOOK_FINALIZE_INSTRUCTIONS,
+  BOOK_IMPROVE_INSTRUCTIONS,
+  BOOK_TECHNICAL_GLOSSARY,
+} from '@/lib/book-workflow/prompts';
 import { runTodosCurrentnessReviewStep } from '@/lib/todos/currentness-review-step';
 
 const STYLE_MAP: Record<string, 'academic' | 'professional' | 'simplified'> = {
@@ -790,17 +794,28 @@ async function runTranslateCandidate(
       provider,
       model,
       targetLanguage: lang as any,
+      skillContext: 'todos',
+      editorialProfile: 'book-ptbr',
     });
+
+    if (transform.wholeResult?.skippedAlreadyTargetLanguage) {
+      await onProgress?.(100, 'Documento já está em pt-BR; tradução por IA dispensada');
+    }
 
     if (transform.runBatches) {
       const result = await translateDocx(inputPath, outputPath, {
         targetLanguage: lang as any,
         provider,
         model,
+        preserveNotes: true,
+        editorialProfile: 'book-ptbr',
+        glossary: BOOK_TECHNICAL_GLOSSARY,
         onProgress: (translationProgress) => {
           void onProgress?.(
             translationProgress.percentage,
-            `Traduzindo lote ${translationProgress.currentChunk}/${translationProgress.totalChunks}`,
+            translationProgress.currentSection === 'language-check'
+              ? 'Documento já está em pt-BR; tradução por IA dispensada'
+              : `Traduzindo lote ${translationProgress.currentChunk}/${translationProgress.totalChunks}`,
             translationProgress.currentChunk,
             translationProgress.totalChunks
           );
