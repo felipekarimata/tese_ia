@@ -4,6 +4,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import { TranslationOptions, TextElement, TranslationResult, TranslationProgress } from './types';
 import { translateTextDirect } from './translate-direct';
+import { assessPortugueseDocument } from './language-gate';
+import { extractDocumentStructure } from '@/lib/improvement/document-analyzer';
 
 function normalizeForMatch(text: string): string {
   return (text || '')
@@ -1034,6 +1036,37 @@ export async function translateDocx(
 
     if (textElements.length === 0) {
       throw new Error('No text found in document');
+    }
+
+    if (options.targetLanguage === 'pt' && options.editorialProfile === 'book-ptbr') {
+      const { paragraphs } = await extractDocumentStructure(inputPath);
+      const languageAssessment = assessPortugueseDocument(paragraphs.map((paragraph) => paragraph.text));
+      if (languageAssessment.shouldSkipTranslation) {
+        log('[LANGUAGE] Documento já está em português; tradução por IA dispensada.');
+        await fs.copyFile(inputPath, outputPath);
+        await options.onProgress?.({
+          status: 'completed',
+          currentChunk: 0,
+          totalChunks: 0,
+          percentage: 100,
+          currentSection: 'language-check',
+          elapsedSeconds: Math.round((Date.now() - startTime) / 1000),
+          stats: {
+            validationPassed: 0,
+            validationFailed: 0,
+            retriesSucceeded: 0,
+            originalKept: textElements.length,
+          },
+        });
+        return {
+          success: true,
+          outputPath,
+          elementsTranslated: 0,
+          skippedAlreadyTargetLanguage: true,
+          durationMs: Date.now() - startTime,
+          costEstimatedUsd: 0,
+        };
+      }
     }
 
     // Limita elementos se maxPages foi especificado

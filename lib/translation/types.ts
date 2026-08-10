@@ -71,6 +71,7 @@ export type TranslationResult = {
   success: boolean;
   outputPath?: string;
   elementsTranslated: number;
+  skippedAlreadyTargetLanguage?: boolean;
   error?: string;
   costEstimatedUsd?: number;
   durationMs?: number;

@@ -11,6 +11,8 @@ import { SupportedLanguage } from '@/lib/translation/types';
 import { buildCustomWholeDocumentPrompt } from '@/lib/skills/custom-whole-document';
 import { resolveSkillPrompt } from '@/lib/skills/resolver';
 import type { SkillContext, SkillKey } from '@/lib/skills/types';
+import { BOOK_TRANSLATION_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
+import { assessPortugueseDocument } from '@/lib/translation/language-gate';
 
 export type PromptParagraph = {
   index: number;
@@ -32,6 +34,7 @@ export type WholeDocumentOptions = {
   customPrompt?: string;
   maxChars?: number;
   skillContext?: SkillContext;
+  editorialProfile?: 'book-ptbr';
 };
 
 export type WholeDocumentResult = {
@@ -40,6 +43,7 @@ export type WholeDocumentResult = {
   paragraphCount: number;
   markerMatchRate: number;
   appliedCount: number;
+  skippedAlreadyTargetLanguage?: boolean;
   error?: string;
 };
 
@@ -95,11 +99,14 @@ export function buildWholeDocumentPrompt(
       : options.targetLanguage === 'de' ? 'alemão'
       : options.targetLanguage === 'it' ? 'italiano'
       : 'português';
-    return resolveSkillPrompt(
+    const translationPrompt = resolveSkillPrompt(
       'translate',
       { language: lang, document: serialized },
       context
     );
+    return options.editorialProfile === 'book-ptbr'
+      ? `${BOOK_TRANSLATION_INSTRUCTIONS}\n\n${translationPrompt}`
+      : translationPrompt;
   }
 
   if (task === 'adapt') {
@@ -252,6 +259,26 @@ export async function processWholeDocument(
         markerMatchRate: 1,
         appliedCount: 0,
       };
+    }
+
+    if (
+      options.task === 'translate'
+      && options.targetLanguage === 'pt'
+      && options.editorialProfile === 'book-ptbr'
+    ) {
+      const languageAssessment = assessPortugueseDocument(paragraphs.map((paragraph) => paragraph.text));
+      if (languageAssessment.shouldSkipTranslation) {
+        const fs = await import('fs/promises');
+        await fs.copyFile(inputPath, outputPath);
+        return {
+          success: true,
+          processingMode: 'whole-document',
+          paragraphCount: paragraphs.length,
+          markerMatchRate: 1,
+          appliedCount: 0,
+          skippedAlreadyTargetLanguage: true,
+        };
+      }
     }
 
     if (!canUseWholeDocument(paragraphs, options.provider, options.maxChars)) {
