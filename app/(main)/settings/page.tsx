@@ -203,9 +203,9 @@ export default function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>`/todos` — 3 IAs + juiz</CardTitle>
+          <CardTitle>`/todos` — 3 IAs + redator final</CardTitle>
           <CardDescription>
-            Defina os três modelos candidatos e o modelo juiz usados pelo comando `/todos`.
+            Defina os três modelos candidatos e o modelo que combinará as melhores partes na redação final do `/todos`.
           </CardDescription>
         </CardHeader>
         <CardContent>

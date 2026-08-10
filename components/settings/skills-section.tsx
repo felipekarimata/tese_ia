@@ -191,7 +191,7 @@ export function SkillsSection({
                     {command.name}{command.args ? ` ${command.args}` : ''}
                   </code>
                   {command.name === '/todos' && (
-                    <Badge variant="outline">3 IAs + juiz</Badge>
+                    <Badge variant="outline">3 IAs + redator final</Badge>
                   )}
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">{command.description}</p>

@@ -13,6 +13,11 @@ import {
 } from './session-store';
 import { judgeMulti3Results } from './judge';
 import {
+  replaceJudgeFinalCandidate,
+  sourceMulti3Candidates,
+  synthesizeJudgeFinalDocument,
+} from './judge-editor';
+import {
   Multi3StartRequest,
   Multi3Session,
   Multi3Candidate,
@@ -41,12 +46,10 @@ import { analyzeDocumentForAdaptation } from '@/lib/adapt/processor';
 import { analyzeDocumentForAdjustments } from '@/lib/adjust/processor';
 import { applySuggestionsToDocx, type ApplyDocxSuggestion } from '@/lib/translation/docx-translator';
 import { extractDocumentStructure } from '@/lib/improvement/document-analyzer';
-import { detectNormsInDocument } from '@/lib/norms-update/norm-detector';
-import { verifyMultipleNorms } from '@/lib/norms-update/norm-verifier';
-import { applyNormUpdatesToDocx } from '@/lib/norms-update/apply-docx';
 import { chatWithAgent } from '@/lib/ai/agent-chat';
 import { supabase } from '@/lib/supabase';
 import { BOOK_FINALIZE_INSTRUCTIONS, BOOK_IMPROVE_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
+import { runTodosCurrentnessReviewStep } from '@/lib/todos/currentness-review-step';
 
 const STYLE_MAP: Record<string, 'academic' | 'professional' | 'simplified'> = {
   acadêmico: 'academic', academico: 'academic', academic: 'academic',
@@ -93,7 +96,7 @@ export async function startChapterMulti3(
   return session;
 }
 
-/** Executa pipeline Multi-IA (3 candidatos → juiz → aceitar vencedor). */
+/** Executa pipeline Multi-IA (3 candidatos → redação final combinada → ativação). */
 export async function executeChapterMulti3Session(
   chapterId: string,
   sessionId: string
@@ -208,7 +211,7 @@ async function runChapterMulti3Pipeline(
   const persistedCandidates = (await getMulti3Session(sessionId))?.candidates || candidates;
   await updateMulti3Session(sessionId, { candidates: persistedCandidates, status: 'candidates_ready' });
 
-  const completed = persistedCandidates.filter((c) => c.status === 'completed');
+  const completed = sourceMulti3Candidates(persistedCandidates).filter((c) => c.status === 'completed');
   if (completed.length === 0) {
     await updateMulti3Session(sessionId, {
       status: 'failed',
@@ -224,49 +227,158 @@ async function runChapterMulti3Pipeline(
   const judgeProvider = req.judgeProvider || DEFAULT_JUDGE_PROVIDER;
   const judgeModel = req.models?.[judgeProvider] || multi3DefaultModel(judgeProvider);
 
-  const textByProvider: Record<string, string> = {};
-  for (const c of completed) {
-    if (c.text) {
-      textByProvider[c.provider] = c.text;
-    } else if (c.versionId) {
-      const { data: ver } = await supabase
-        .from('chapter_versions')
-        .select('file_path')
-        .eq('id', c.versionId)
-        .single();
-      if (ver?.file_path) {
-        const tmp = await downloadChapterVersionFile(c.versionId, ver.file_path, 'judge_preview');
-        try {
-          textByProvider[c.provider] = await extractVersionTextPreview(tmp);
-        } finally {
-          await fs.unlink(tmp).catch(() => {});
-        }
-      }
-    }
-  }
-
-  const judgeResult = await judgeMulti3Results({
-    command: req.command,
-    commandArgs: req.args || '',
+  const finalCandidate = await createChapterJudgeFinal(
+    chapterId,
+    sessionId,
+    completed,
     judgeProvider,
     judgeModel,
-    candidates: completed.map((c) => ({
-      provider: c.provider,
-      text: textByProvider[c.provider] || c.text || '',
-    })),
-  });
-
-  const winner = completed.find((c) => c.provider === judgeResult.winnerProvider) || completed[0];
+    req.args || ''
+  );
 
   await updateMulti3Session(sessionId, {
-    winnerProvider: winner.provider,
-    winnerVersionId: winner.versionId,
-    judgeReasoning: judgeResult.reasoning,
-    judgeScores: judgeResult.scores,
+    winnerProvider: finalCandidate.provider,
+    winnerVersionId: finalCandidate.versionId,
+    judgeReasoning: finalCandidate.progressLabel || 'Redação final concluída.',
+    judgeScores: {},
     completedAt: new Date().toISOString(),
   });
 
-  await acceptMulti3Winner(sessionId, winner.provider);
+  await acceptMulti3Winner(sessionId, finalCandidate.provider, finalCandidate.versionId);
+}
+
+export async function createChapterJudgeFinal(
+  chapterId: string,
+  sessionId: string,
+  completedCandidates: Multi3Candidate[],
+  judgeProvider: AIProvider,
+  judgeModel: string,
+  commandArgs = ''
+): Promise<Multi3Candidate> {
+  const sourceCandidates = sourceMulti3Candidates(completedCandidates).filter(
+    (candidate) => candidate.status === 'completed' && candidate.versionId
+  );
+  if (sourceCandidates.length === 0) {
+    throw new Error('Nenhuma versão concluída está disponível para o redator final.');
+  }
+
+  const branchIndex = 3;
+  const runningCandidate: Multi3Candidate = {
+    provider: judgeProvider,
+    model: judgeModel,
+    judgeModel,
+    role: 'judge-final',
+    status: 'running',
+    branchIndex,
+    progress: 0,
+    progressLabel: 'Preparando a redação final',
+  };
+  const current = await getMulti3Session(sessionId);
+  await updateMulti3Session(sessionId, {
+    candidates: replaceJudgeFinalCandidate(current?.candidates || sourceCandidates, runningCandidate),
+  });
+
+  const tempPaths: string[] = [];
+  const outputPath = path.join(os.tmpdir(), `${randomUUID()}_multi3_judge_final.docx`);
+  tempPaths.push(outputPath);
+
+  try {
+    const candidateDocuments = [];
+    for (const candidate of sourceCandidates) {
+      const { data: version, error } = await supabase
+        .from('chapter_versions')
+        .select('file_path')
+        .eq('id', candidate.versionId!)
+        .single();
+      if (error || !version?.file_path) {
+        throw new Error(`Arquivo da versão ${candidate.provider} não encontrado.`);
+      }
+      const filePath = await downloadChapterVersionFile(
+        candidate.versionId!,
+        version.file_path,
+        'judge_final'
+      );
+      tempPaths.push(filePath);
+      candidateDocuments.push({
+        provider: candidate.provider,
+        model: candidate.model,
+        filePath,
+      });
+    }
+
+    const result = await synthesizeJudgeFinalDocument({
+      candidates: candidateDocuments,
+      outputPath,
+      judgeProvider,
+      judgeModel,
+      apiKey: getApiKey(judgeProvider),
+      commandArgs,
+      cancelCheck: multi3CancelCheck(sessionId),
+      onProgress: async (progress) => {
+        await patchMulti3Candidate(sessionId, branchIndex, {
+          ...runningCandidate,
+          progress: progress.progress,
+          progressLabel: progress.label,
+          currentBatch: progress.currentBatch,
+          totalBatches: progress.totalBatches,
+        });
+      },
+    });
+
+    const parent = sourceCandidates.find((candidate) => candidate.provider === result.baseProvider)
+      || sourceCandidates[0];
+    const versionId = await createChapterVersionFromFile(
+      chapterId,
+      parent.versionId!,
+      outputPath,
+      'improve',
+      {
+        multi3SessionId: sessionId,
+        multi3Provider: judgeProvider,
+        multi3Role: 'judge-final',
+        multi3Command: '/todos',
+        multi3BranchIndex: branchIndex,
+        multi3SourceProviders: sourceCandidates.map((candidate) => candidate.provider),
+        judgeModel,
+      },
+      false
+    );
+
+    const finalCandidate: Multi3Candidate = {
+      provider: judgeProvider,
+      model: judgeModel,
+      judgeModel,
+      role: 'judge-final',
+      status: 'completed',
+      branchIndex,
+      progress: 100,
+      progressLabel: result.reasoning,
+      versionId,
+      versionIds: [versionId],
+      text: result.previewText,
+      currentBatch: result.completedBatches + result.failedBatches,
+      totalBatches: result.completedBatches + result.failedBatches,
+    };
+    const updated = await getMulti3Session(sessionId);
+    await updateMulti3Session(sessionId, {
+      candidates: replaceJudgeFinalCandidate(updated?.candidates || sourceCandidates, finalCandidate),
+    });
+    return finalCandidate;
+  } catch (error: any) {
+    const failedCandidate: Multi3Candidate = {
+      ...runningCandidate,
+      status: 'failed',
+      error: error.message || String(error),
+      progressLabel: 'Falha ao criar a redação final',
+    };
+    const updated = await getMulti3Session(sessionId);
+    await updateMulti3Session(sessionId, {
+      candidates: replaceJudgeFinalCandidate(updated?.candidates || sourceCandidates, failedCandidate),
+    });
+    throw error;
+  } finally {
+    await Promise.all(tempPaths.map((tempPath) => fs.unlink(tempPath).catch(() => {})));
+  }
 }
 
 async function runSingleCandidate(
@@ -730,7 +842,8 @@ async function runRevisarCandidate(
   sessionId: string,
   onProgress?: CandidateStepProgress
 ): Promise<Multi3Candidate> {
-  multi3CancelCheck(sessionId)();
+  const cancelCheck = multi3CancelCheck(sessionId);
+  cancelCheck();
   const { data: ver } = await supabase.from('chapter_versions').select('file_path').eq('id', versionId).single();
   if (!ver) throw new Error('Versão não encontrada');
 
@@ -738,69 +851,39 @@ async function runRevisarCandidate(
   const outputPath = path.join(os.tmpdir(), `${randomUUID()}_revisar.docx`);
 
   try {
-    const { structure, paragraphs } = await extractDocumentStructure(inputPath);
-    const paragraphsWithContext = paragraphs
-      .filter((p) => !p.isHeader)
-      .map((p) => ({
-        text: p.text,
-        index: p.index,
-        chapterTitle: structure.sections.find((s) =>
-          p.index >= s.startParagraphIndex && p.index <= s.endParagraphIndex && s.level === 1
-        )?.title,
-      }));
-
-    const normsProvider: 'openai' | 'gemini' | 'anthropic' =
-      provider === 'grok' ? 'gemini' : provider;
-    const normsModel = provider === 'grok' ? 'gemini-2.5-flash' : model;
-    const apiKey = getApiKey(normsProvider);
-
-    const references = await detectNormsInDocument(
-      paragraphsWithContext,
-      normsProvider,
-      normsModel,
-      apiKey,
-      async (currentBatch, totalBatches) => {
+    const reviewResult = await runTodosCurrentnessReviewStep({
+      inputPath,
+      outputPath,
+      provider,
+      model,
+      apiKey: getApiKey(provider),
+      onLog: (message) => {
+        console.log(`[MULTI3 ${sessionId}] /todos revisar ${provider}/${model}: ${message}`);
+      },
+      onProgress: async (progress) => {
+        cancelCheck();
         await onProgress?.(
-          Math.round((currentBatch / Math.max(1, totalBatches)) * 55),
-          `Detectando referências — lote ${currentBatch}/${totalBatches}`,
-          currentBatch,
-          totalBatches
+          progress.percentage,
+          progress.label,
+          progress.current,
+          progress.total
         );
-      }
-    );
-
-    if (references.length === 0) {
-      await fs.copyFile(inputPath, outputPath);
-    } else {
-      const verified = await verifyMultipleNorms(
-        references,
-        normsProvider,
-        normsModel,
-        apiKey,
-        undefined,
-        (current, total) => {
-          void onProgress?.(
-            55 + Math.round((current / Math.max(1, total)) * 40),
-            `Verificando referência ${current}/${total}`,
-            current,
-            total
-          );
-        }
-      );
-      const toApply = verified.filter((r) => r.suggestedText);
-      if (toApply.length === 0) {
-        await fs.copyFile(inputPath, outputPath);
-      } else {
-        await applyNormUpdatesToDocx(inputPath, outputPath, toApply);
-      }
-    }
+      },
+    });
 
     const newVersionId = await createChapterVersionFromFile(
       chapterId,
       versionId,
       outputPath,
       'update',
-      { ...meta, multi3AutoApplied: true },
+      {
+        ...meta,
+        multi3AutoApplied: true,
+        reviewScope: 'currentness',
+        researchDepth: 'deep',
+        currentnessFindings: reviewResult.findings.length,
+        currentnessApplied: reviewResult.applyResult?.appliedCount ?? 0,
+      },
       false
     );
 
@@ -821,16 +904,27 @@ async function runRevisarCandidate(
 
 export async function acceptMulti3Winner(
   sessionId: string,
-  provider?: AIProvider
+  provider?: AIProvider,
+  versionId?: string
 ): Promise<Multi3Session> {
   const session = await getMulti3Session(sessionId);
   if (!session) throw new Error('Sessão não encontrada');
 
-  const chosenProvider = provider || session.winnerProvider;
-  if (!chosenProvider) throw new Error('Nenhum vencedor definido');
-
-  const winner = session.candidates.find((c) => c.provider === chosenProvider && c.status === 'completed');
+  const winner = versionId
+    ? session.candidates.find((candidate) => candidate.versionId === versionId && candidate.status === 'completed')
+    : provider
+      ? session.candidates.find(
+          (candidate) => candidate.role !== 'judge-final' && candidate.provider === provider && candidate.status === 'completed'
+        )
+      : session.winnerVersionId
+      ? session.candidates.find(
+          (candidate) => candidate.versionId === session.winnerVersionId && candidate.status === 'completed'
+        )
+      : session.candidates.find(
+          (candidate) => candidate.provider === session.winnerProvider && candidate.status === 'completed'
+        );
   if (!winner) throw new Error('Candidato não encontrado');
+  const chosenProvider = winner.provider;
 
   if (session.command === '/perguntar' || !winner.versionId) {
     await updateMulti3Session(sessionId, {
@@ -866,7 +960,76 @@ export async function rejudgeMulti3Session(
   const session = await getMulti3Session(sessionId);
   if (!session) throw new Error('Sessão não encontrada');
 
-  const completed = session.candidates.filter((c) => c.status === 'completed');
+  const completed = sourceMulti3Candidates(session.candidates).filter((c) => c.status === 'completed');
+  const model = judgeModel || multi3DefaultModel(judgeProvider);
+
+  if (session.command === '/todos') {
+    const previousFinal = session.candidates.find((candidate) => candidate.role === 'judge-final');
+    try {
+      await updateMulti3Session(sessionId, {
+        status: 'judging',
+        judgeProvider,
+        candidates: sourceMulti3Candidates(session.candidates).map((candidate) => ({
+          ...candidate,
+          judgeModel: model,
+        })),
+      });
+
+      if (session.targetType === 'document') {
+        const { createDocumentJudgeFinal, acceptDocumentMulti3Winner } = await import('./document-orchestrator');
+        const finalCandidate = await createDocumentJudgeFinal(
+          session.targetId,
+          sessionId,
+          completed,
+          judgeProvider,
+          model,
+          session.commandArgs
+        );
+        await updateMulti3Session(sessionId, {
+          winnerProvider: finalCandidate.provider,
+          winnerVersionId: finalCandidate.versionId,
+          judgeReasoning: finalCandidate.progressLabel || 'Redação final concluída.',
+          judgeScores: {},
+        });
+        return acceptDocumentMulti3Winner(sessionId, finalCandidate.provider, finalCandidate.versionId);
+      }
+
+      const finalCandidate = await createChapterJudgeFinal(
+        session.targetId,
+        sessionId,
+        completed,
+        judgeProvider,
+        model,
+        session.commandArgs
+      );
+      await updateMulti3Session(sessionId, {
+        winnerProvider: finalCandidate.provider,
+        winnerVersionId: finalCandidate.versionId,
+        judgeReasoning: finalCandidate.progressLabel || 'Redação final concluída.',
+        judgeScores: {},
+      });
+      return acceptMulti3Winner(sessionId, finalCandidate.provider, finalCandidate.versionId);
+    } catch (error) {
+      if (previousFinal) {
+        await updateMulti3Session(sessionId, {
+          status: session.status,
+          judgeProvider: session.judgeProvider,
+          candidates: session.candidates,
+          winnerProvider: session.winnerProvider!,
+          winnerVersionId: session.winnerVersionId!,
+          judgeReasoning: session.judgeReasoning || 'A redação final anterior foi preservada.',
+          judgeScores: session.judgeScores || {},
+        });
+      } else {
+        await updateMulti3Session(sessionId, {
+          status: 'failed',
+          completedAt: new Date().toISOString(),
+        });
+      }
+      throw error;
+    }
+  }
+
   const textByProvider: Record<string, string> = {};
 
   for (const c of completed) {
@@ -889,7 +1052,6 @@ export async function rejudgeMulti3Session(
     }
   }
 
-  const model = judgeModel || multi3DefaultModel(judgeProvider);
   const judgeResult = await judgeMulti3Results({
     command: session.command,
     commandArgs: session.commandArgs,

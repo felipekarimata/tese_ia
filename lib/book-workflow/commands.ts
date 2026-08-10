@@ -51,7 +51,7 @@ export const BOOK_COMMANDS: readonly BookCommandDefinition[] = [
     name: '/todos',
     args: '',
     example: '/todos',
-    description: 'Executa traduzir, revisar, aprimorar e finalizar com três IAs e um juiz.',
+    description: 'Executa traduzir, revisar, aprimorar e finalizar com três IAs e cria uma redação final combinando as melhores partes.',
   },
 ] as const;
 

@@ -14,13 +14,13 @@ export type CommandCategory = {
 };
 
 export const MULTI3_SHORT_DESCRIPTION =
-  'Use /todos sozinho para executar quatro etapas editoriais com três IAs e um juiz.';
+  'Use /todos sozinho para executar quatro etapas editoriais com três IAs; o redator final combina as melhores partes das três versões.';
 
 export const MULTI3_PROVIDER_HINT =
-  'Os três candidatos, seus modelos e o juiz são definidos em Configurações.';
+  'Os três candidatos, seus modelos e o provedor/modelo do redator final são definidos em Configurações.';
 
 export const MULTI3_COMMAND_EXAMPLES: CommandExample[] = [
-  { cmd: '/todos', desc: 'Traduzir, revisar, aprimorar e finalizar com 3 IAs + juiz' },
+  { cmd: '/todos', desc: 'Quatro etapas com 3 IAs + uma redação final combinada' },
 ];
 
 const BASE_CATALOG: CommandCategory[] = [

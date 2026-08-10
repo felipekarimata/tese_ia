@@ -11,7 +11,11 @@ export async function POST(
   try {
     const { sessionId } = await params;
     const body = await req.json().catch(() => ({}));
-    const session = await acceptDocumentMulti3Winner(sessionId, body.provider as AIProvider | undefined);
+    const session = await acceptDocumentMulti3Winner(
+      sessionId,
+      body.provider as AIProvider | undefined,
+      body.versionId as string | undefined
+    );
     return NextResponse.json({ session });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

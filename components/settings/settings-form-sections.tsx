@@ -285,10 +285,10 @@ export function Multi3DefaultsSection({
     <div className={cn('space-y-4', compact && 'space-y-3')}>
       <div>
         <p className={cn('font-semibold text-white', compact ? 'text-sm' : 'text-base')}>
-          `/todos` — 3 IAs + juiz
+          `/todos` — 3 IAs + redator final
         </p>
         <p className="text-xs text-gray-500 mt-1">
-          Cada candidato executa traduzir, revisar, aprimorar e finalizar. O juiz compara os três resultados.
+          Cada candidato executa traduzir, revisar, aprimorar e finalizar. O redator final combina as melhores partes das três versões em um quarto documento.
         </p>
       </div>
 
@@ -348,29 +348,52 @@ export function Multi3DefaultsSection({
         Ao escolher um provedor que já ocupa outro candidato, as duas posições são trocadas.
       </p>
 
-      <div className="space-y-1.5 max-w-sm">
-        <Label className="text-xs text-gray-400">Provedor juiz</Label>
-        <Select
-          value={config.judgeProvider}
-          onValueChange={(provider) => updateMulti3({ judgeProvider: provider as AIProviderKey })}
-        >
-          <SelectTrigger className="h-9 bg-white/5 border-white/10">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {MULTI3_PROVIDERS.map((provider) => (
-              <SelectItem key={provider} value={provider}>
-                {PROVIDER_LABELS[provider]} - {config.defaultModels[provider]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="grid gap-3 sm:grid-cols-2 max-w-2xl">
+        <div className="space-y-1.5">
+          <Label className="text-xs text-gray-400">Provedor do redator final</Label>
+          <Select
+            value={config.judgeProvider}
+            onValueChange={(provider) => updateMulti3({ judgeProvider: provider as AIProviderKey })}
+          >
+            <SelectTrigger className="h-9 bg-white/5 border-white/10">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MULTI3_PROVIDERS.map((provider) => (
+                <SelectItem key={provider} value={provider}>
+                  {PROVIDER_LABELS[provider]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs text-gray-400">Modelo do redator final</Label>
+          <Select
+            value={config.defaultModels[config.judgeProvider] || ''}
+            onValueChange={(model) => updateMulti3({
+              defaultModels: { ...config.defaultModels, [config.judgeProvider]: model },
+            })}
+          >
+            <SelectTrigger className="h-9 bg-white/5 border-white/10">
+              <SelectValue placeholder="Selecione o modelo" />
+            </SelectTrigger>
+            <SelectContent>
+              {Array.from(new Set([
+                config.defaultModels[config.judgeProvider],
+                ...(settings?.models?.[config.judgeProvider] ?? []),
+              ].filter((model): model is string => Boolean(model)))).map((model) => (
+                <SelectItem key={model} value={model}>{model}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <p className="text-xs text-gray-500">
         Candidatos: {config.defaultProviders
           .map((provider) => `${provider}/${config.defaultModels[provider]}`)
-          .join(' | ')}. Juiz: {config.judgeProvider}/{config.defaultModels[config.judgeProvider]}.
+          .join(' | ')}. Redator final: {config.judgeProvider}/{config.defaultModels[config.judgeProvider]}.
       </p>
     </div>
   );

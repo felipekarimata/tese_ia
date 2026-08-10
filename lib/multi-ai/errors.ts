@@ -33,10 +33,11 @@ export function getMulti3FailureMessage(session: SessionLike): string {
 }
 
 export function formatMulti3ProgressLine(session: SessionLike & { providers?: string[]; status?: string; command?: string }): string {
-  const total = session.providers?.length ?? session.candidates?.length ?? 3;
-  const done = session.candidates?.filter((c) => c.status === 'completed').length ?? 0;
-  const failed = session.candidates?.filter((c) => c.status === 'failed').length ?? 0;
-  const running = session.candidates?.filter((c) => c.status === 'running') ?? [];
+  const sourceCandidates = session.candidates?.filter((candidate) => candidate.role !== 'judge-final') ?? [];
+  const total = session.providers?.length ?? sourceCandidates.length ?? 3;
+  const done = sourceCandidates.filter((c) => c.status === 'completed').length;
+  const failed = sourceCandidates.filter((c) => c.status === 'failed').length;
+  const running = sourceCandidates.filter((c) => c.status === 'running');
   const status = session.status ?? 'running';
   const overall = multi3OverallProgress({ status, candidates: session.candidates });
   const cmd = session.command?.replace('/', '') || 'comando';
@@ -44,7 +45,7 @@ export function formatMulti3ProgressLine(session: SessionLike & { providers?: st
     running: 'iniciando',
     processing: 'processando',
     candidates_ready: 'candidatos prontos',
-    judging: 'juiz avaliando',
+    judging: 'redator final trabalhando',
     failed: 'falhou',
   };
   const phase = labels[status] || status;
@@ -56,6 +57,14 @@ export function formatMulti3ProgressLine(session: SessionLike & { providers?: st
       return `Multi-IA /${cmd}: ${info.title} — ${done}/${total} ok, ${failed} falhou`;
     }
     return `Multi-IA /${cmd}: ${phase} — ${done}/${total} ok, ${failed} falhou`;
+  }
+
+  if (status === 'judging') {
+    const judgeCandidate = session.candidates?.find((candidate) => candidate.role === 'judge-final');
+    const batch = judgeCandidate?.currentBatch && judgeCandidate?.totalBatches
+      ? `, lote ${judgeCandidate.currentBatch}/${judgeCandidate.totalBatches}`
+      : '';
+    return `Multi-IA /${cmd}: ${overall}% — ${judgeCandidate?.progressLabel || phase}${batch}`;
   }
 
   if (running.length > 0 && done === 0) {
