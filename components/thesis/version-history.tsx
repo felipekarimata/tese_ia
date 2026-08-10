@@ -181,6 +181,7 @@ export function VersionHistory({
     const meta = version.metadata as Record<string, unknown> | undefined;
     const provider = meta?.multi3Provider as string | undefined;
     const isChosen = opts?.isChosen ?? meta?.multi3Role === 'winner';
+    const isJudgeFinal = meta?.multi3Role === 'judge-final';
 
     return (
       <div key={version.id} className="relative flex items-start gap-4 py-2.5">
@@ -209,10 +210,16 @@ export function VersionHistory({
                 {version.isCurrent && (
                   <Badge className="bg-red-600 text-white text-xs px-1.5 py-0 h-4">Atual</Badge>
                 )}
-                {isChosen && (
+                {isChosen && !isJudgeFinal && (
                   <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs px-1.5 py-0 h-4">
                     <Trophy className="h-3 w-3 mr-1 inline" />
-                    Escolhida
+                    Selecionada no /todos
+                  </Badge>
+                )}
+                {isJudgeFinal && (
+                  <Badge className="bg-yellow-500/20 text-yellow-300 border-yellow-500/30 text-xs px-1.5 py-0 h-4">
+                    <Trophy className="h-3 w-3 mr-1 inline" />
+                    Redação final do juiz
                   </Badge>
                 )}
                 {isFirst && !version.isCurrent && (
@@ -224,9 +231,9 @@ export function VersionHistory({
                     {PROVIDER_LABEL[provider] || provider}
                   </Badge>
                 )}
-                {meta?.multi3Step && (
+                {Boolean(meta?.multi3Step) && (
                   <Badge variant="outline" className="text-gray-500 text-xs px-1.5 py-0 h-4">
-                    {String(meta.multi3Step)}
+                    {String(meta?.multi3Step)}
                   </Badge>
                 )}
               </div>
@@ -264,8 +271,11 @@ export function VersionHistory({
   };
 
   const renderCandidateText = (session: Multi3Session, candidate: Multi3Candidate) => {
-    const isChosen = candidate.provider === session.winnerProvider;
-    const textKey = `${session.id}-${candidate.provider}`;
+    const isChosen = candidate.versionId
+      ? candidate.versionId === session.winnerVersionId
+      : !session.winnerVersionId && candidate.provider === session.winnerProvider;
+    const isJudgeFinal = candidate.role === 'judge-final';
+    const textKey = `${session.id}-${candidate.provider}-${candidate.role || candidate.branchIndex || 'candidate'}`;
     const expanded = expandedTexts.has(textKey);
     const displayText =
       candidate.text ||
@@ -283,12 +293,12 @@ export function VersionHistory({
       >
         <div className="flex items-center gap-2 flex-wrap mb-2">
           <Badge variant="outline" className="text-indigo-400 border-indigo-500/30 text-xs capitalize">
-            {PROVIDER_LABEL[candidate.provider] || candidate.provider}
+            {isJudgeFinal ? 'Redação final do juiz' : PROVIDER_LABEL[candidate.provider] || candidate.provider}
           </Badge>
           {isChosen && (
             <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
               <Trophy className="h-3 w-3 mr-1 inline" />
-              Escolhida pelo juiz
+              Versão ativa
             </Badge>
           )}
           {candidate.status === 'failed' && (
@@ -316,9 +326,13 @@ export function VersionHistory({
     const isCollapsed = collapsedGroups.has(groupKey);
     const completed = session.candidates.filter((c) => c.status === 'completed');
     const isPerguntar = session.command === '/perguntar';
-    const candidateCount = session.candidates.filter((c) => c.status !== 'failed').length;
+    const sourceCandidates = session.candidates.filter((candidate) => candidate.role !== 'judge-final');
+    const finalCandidate = session.candidates.find((candidate) => candidate.role === 'judge-final');
+    const candidateCount = sourceCandidates.filter((c) => c.status !== 'failed').length;
     const isStuck = ['running', 'processing'].includes(session.status) && completed.length === 0;
-    const winnerLabel = session.winnerProvider
+    const winnerLabel = finalCandidate?.versionId === session.winnerVersionId
+      ? 'Redação final do juiz'
+      : session.winnerProvider
       ? PROVIDER_LABEL[session.winnerProvider] || session.winnerProvider
       : null;
 
@@ -337,7 +351,7 @@ export function VersionHistory({
           </span>
           {winnerLabel && (
             <Badge className="bg-green-500/15 text-green-400 border-green-500/30 text-xs shrink-0">
-              Escolhida: {winnerLabel}
+              Ativa: {winnerLabel}
             </Badge>
           )}
           <Badge variant="outline" className="text-xs border-indigo-500/30 text-indigo-400 shrink-0 ml-auto">
@@ -353,7 +367,7 @@ export function VersionHistory({
                 day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
               })}
               {session.judgeProvider && (
-                <span>· Juiz: {PROVIDER_LABEL[session.judgeProvider] || session.judgeProvider}</span>
+                <span>· Redator final: {PROVIDER_LABEL[session.judgeProvider] || session.judgeProvider}</span>
               )}
             </div>
 
@@ -366,21 +380,24 @@ export function VersionHistory({
             {session.candidates.map((candidate) => {
               const branchIdx = candidate.branchIndex ?? 0;
               const branchVersions = versionsForBranch(sorted, session.id, branchIdx);
-              const isChosenBranch = candidate.provider === session.winnerProvider;
+              const isChosenBranch = candidate.versionId
+                ? candidate.versionId === session.winnerVersionId
+                : !session.winnerVersionId && candidate.provider === session.winnerProvider;
+              const isJudgeFinal = candidate.role === 'judge-final';
 
               if (isPerguntar || branchVersions.length === 0) {
                 return renderCandidateText(session, candidate);
               }
 
               return (
-                <div key={candidate.provider} className="border-l-2 border-indigo-500/25 pl-3 space-y-1">
+                <div key={`${candidate.provider}-${candidate.role || branchIdx}`} className="border-l-2 border-indigo-500/25 pl-3 space-y-1">
                   <div className="flex items-center gap-2 mb-1">
                     <p className="text-xs text-indigo-400/90 font-medium capitalize">
-                      {PROVIDER_LABEL[candidate.provider] || candidate.provider}
+                      {isJudgeFinal ? 'Redação final do juiz' : PROVIDER_LABEL[candidate.provider] || candidate.provider}
                     </p>
                     {isChosenBranch && (
                       <Badge className="bg-green-500/15 text-green-400 border-green-500/30 text-[10px] h-4">
-                        Escolhida
+                        Ativa
                       </Badge>
                     )}
                   </div>

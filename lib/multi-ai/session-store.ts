@@ -52,6 +52,7 @@ export async function createMulti3Session(
     provider,
     model: req.models?.[provider] || defaultModel(provider),
     status: 'running',
+    role: 'candidate',
     branchIndex,
     progress: 0,
     judgeModel,

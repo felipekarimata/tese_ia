@@ -359,8 +359,8 @@ export default function ProjectAgentPage() {
           status: 'success',
           multi3Phase: finalSession.status === 'accepted' ? 'accepted' : 'compare',
           content: finalSession.status === 'accepted'
-            ? `Multi-IA concluída. Versão ${winnerLabel} salva como ativa. ${finalSession.judgeReasoning || ''}`
-            : `Comparação pronta. Juiz recomenda: ${winnerLabel}. ${finalSession.judgeReasoning || ''}`,
+            ? `Multi-IA concluída. O redator final combinou as melhores partes e a nova redação foi salva como ativa. ${finalSession.judgeReasoning || ''}`
+            : `Comparação pronta. Versão indicada: ${winnerLabel}. ${finalSession.judgeReasoning || ''}`,
         } : message));
       } else if (finalSession.status === 'failed') {
         const error = getMulti3FailureMessage(finalSession);
@@ -853,11 +853,11 @@ export default function ProjectAgentPage() {
             status: 'success',
             multi3Phase: finalSession.status === 'accepted' ? 'accepted' : 'compare',
             content: finalSession.status === 'accepted' && finalSession.command !== '/perguntar'
-              ? `Multi-IA concluída. Versão ${winnerLabel} salva como ativa. ${finalSession.judgeReasoning || ''}`
-              : `Comparação pronta. Juiz recomenda: ${winnerLabel}. ${finalSession.judgeReasoning || ''}`,
+              ? `Multi-IA concluída. O redator final combinou as melhores partes e a nova redação foi salva como ativa. ${finalSession.judgeReasoning || ''}`
+              : `Comparação pronta. Versão indicada: ${winnerLabel}. ${finalSession.judgeReasoning || ''}`,
           });
           if (finalSession.status === 'accepted' && finalSession.command !== '/perguntar') {
-            toast.success(`Versão ${winnerLabel} ativada automaticamente`);
+            toast.success('Redação final ativada automaticamente');
           }
         } else if (finalSession.status === 'failed') {
           const errMsg = getMulti3FailureMessage(finalSession);
@@ -1383,7 +1383,7 @@ export default function ProjectAgentPage() {
           onClose={() => setMulti3PanelOpen(false)}
           onAccepted={(session) => {
             setActiveMulti3Session(session);
-            toast.success(`Versão ${session.winnerProvider} aplicada ao documento`);
+            toast.success('Versão selecionada aplicada ao documento');
           }}
           onSessionUpdate={setActiveMulti3Session}
           modelsByProvider={resolveMulti3Models(MULTI3_PROVIDERS, settings)}
@@ -1403,7 +1403,7 @@ function WelcomeBlock({ onPick }: { onPick: (cmd: string) => void }) {
         <h2 className="text-xl font-semibold text-white mb-1">Como posso ajudar com este documento?</h2>
         <p className="text-sm text-gray-400 max-w-md mx-auto leading-relaxed">
           Converse livremente ou use um <code className="text-red-400">/comando</code> editorial para gerar uma nova versão.
-          Use <code className="text-red-400">/todos</code> para executar quatro etapas com três IAs e um juiz.
+          Use <code className="text-red-400">/todos</code> para executar quatro etapas com três IAs e criar uma redação final combinada.
         </p>
       </div>
       <div className="grid grid-cols-2 gap-2 max-w-lg mx-auto">

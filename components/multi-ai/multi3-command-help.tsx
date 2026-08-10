@@ -19,7 +19,7 @@ export function Multi3CommandHelp({ onPick, compact }: Multi3CommandHelpProps) {
     <div className={compact ? 'space-y-3' : 'mt-4 pt-4 border-t border-white/10 space-y-4'}>
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-xs font-medium text-indigo-400 mb-1">`/todos` — 3 IAs + juiz</p>
+          <p className="text-xs font-medium text-indigo-400 mb-1">`/todos` — 3 IAs + redator final</p>
           <p className="text-[11px] text-gray-500 leading-relaxed">{MULTI3_SHORT_DESCRIPTION}</p>
           <p className="text-[11px] text-gray-600 mt-1">Configuração: {MULTI3_PROVIDER_HINT}</p>
         </div>

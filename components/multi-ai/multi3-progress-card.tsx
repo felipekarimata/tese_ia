@@ -38,7 +38,7 @@ function stageState(
     return 'pending';
   }
 
-  const candidates = session.candidates || [];
+  const candidates = (session.candidates || []).filter((candidate) => candidate.role !== 'judge-final');
   if (candidates.some((candidate) => candidate.status === 'failed' && STAGE_INDEX[candidate.stage || 'starting'] === stageIndex)) {
     return 'failed';
   }
@@ -98,13 +98,16 @@ export function Multi3ProgressCard({ session }: { session: Multi3Session }) {
   const overall = multi3OverallProgress(session);
   const judgeRunning = session.status === 'judging' || session.status === 'candidates_ready';
   const judgeDone = session.status === 'accepted' || session.status === 'awaiting_human';
+  const sourceCandidates = (session.candidates || []).filter((candidate) => candidate.role !== 'judge-final');
+  const judgeCandidate = (session.candidates || []).find((candidate) => candidate.role === 'judge-final');
+  const judgeBatch = judgeCandidate ? candidateBatchLabel(judgeCandidate) : null;
 
   return (
     <div className="mt-2 w-full max-w-2xl rounded-xl border border-red-500/20 bg-red-950/10 p-3 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-xs font-semibold text-gray-200">Andamento do /todos</div>
-          <div className="text-[10px] text-gray-500">3 modelos em paralelo + juiz</div>
+          <div className="text-[10px] text-gray-500">3 modelos em paralelo + redação final</div>
         </div>
         <span className="text-sm font-semibold tabular-nums text-red-300">{overall}%</span>
       </div>
@@ -141,7 +144,7 @@ export function Multi3ProgressCard({ session }: { session: Multi3Session }) {
       </div>
 
       <div className="space-y-2">
-        {(session.candidates || []).map((candidate, index) => (
+        {sourceCandidates.map((candidate, index) => (
           <CandidateRow key={`${candidate.provider}-${candidate.branchIndex ?? index}`} candidate={candidate} />
         ))}
       </div>
@@ -154,8 +157,12 @@ export function Multi3ProgressCard({ session }: { session: Multi3Session }) {
       )}>
         {judgeRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : judgeDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Scale className="h-3.5 w-3.5" />}
         <span className="min-w-0 truncate">
-          Juiz: {PROVIDER_LABEL[session.judgeProvider] || session.judgeProvider}/{session.judgeModel || 'modelo configurado'}
-          {judgeRunning ? ' — comparando as versões' : judgeDone ? ' — decisão concluída' : ' — aguardando os candidatos'}
+          Redator final: {PROVIDER_LABEL[session.judgeProvider] || session.judgeProvider}/{session.judgeModel || 'modelo configurado'}
+          {judgeRunning
+            ? ` — ${judgeCandidate?.progressLabel || 'preparando a síntese'}${judgeBatch ? ` (${judgeBatch})` : ''}`
+            : judgeDone
+              ? ' — redação final concluída'
+              : ' — aguardando os candidatos'}
         </span>
       </div>
     </div>

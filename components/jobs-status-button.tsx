@@ -58,13 +58,13 @@ const OP_META: Record<string, { label: string; icon: React.ReactNode; color: str
   improve:       { label: 'Melhoria',  icon: <Sparkles    className="h-3.5 w-3.5" />, color: 'text-green-400' },
   'norms-update':{ label: 'Revisão de normas', icon: <SearchCheck className="h-3.5 w-3.5" />, color: 'text-yellow-400' },
   update:        { label: 'Revisão de normas', icon: <SearchCheck className="h-3.5 w-3.5" />, color: 'text-yellow-400' },
-  multi3:        { label: '/todos — 3 IAs + juiz', icon: <GitCompare className="h-3.5 w-3.5" />, color: 'text-indigo-400' },
+  multi3:        { label: '/todos — 3 IAs + redator final', icon: <GitCompare className="h-3.5 w-3.5" />, color: 'text-indigo-400' },
 };
 
 function metaFor(job: ActiveJob) {
   if (job.type === 'multi3') {
     const cmd = job.operation?.startsWith('/') ? job.operation : '/todos';
-    return { label: `${cmd} — 3 IAs + juiz`, icon: <GitCompare className="h-3.5 w-3.5" />, color: 'text-indigo-400' };
+    return { label: `${cmd} — 3 IAs + redator final`, icon: <GitCompare className="h-3.5 w-3.5" />, color: 'text-indigo-400' };
   }
   const key = job.type === 'chapter-operation' ? (job.operation || 'unknown') : job.type;
   return OP_META[key] ?? { label: key, icon: <FileText className="h-3.5 w-3.5" />, color: 'text-gray-400' };

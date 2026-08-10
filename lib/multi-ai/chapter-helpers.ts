@@ -91,7 +91,10 @@ export async function syncMulti3ChapterVersionRoles(
   for (const row of rows) {
     const meta = (row.metadata || {}) as Record<string, unknown>;
     if (meta.multi3SessionId !== sessionId) continue;
-    const role = row.id === winnerVersionId ? 'winner' : 'candidate';
+    const originalRole = meta.multi3Role;
+    const role = row.id === winnerVersionId
+      ? originalRole === 'judge-final' ? 'judge-final' : 'winner'
+      : originalRole === 'judge-final' ? 'judge-final' : 'candidate';
     await supabase
       .from('chapter_versions')
       .update({ metadata: { ...meta, multi3Role: role } })

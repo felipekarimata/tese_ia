@@ -1057,8 +1057,8 @@ export default function AgentModePage() {
         updateMessage(message.id, {
           status: 'success',
           content: finalSession.status === 'accepted'
-            ? `Multi-IA concluída. Versão ${winnerLabel} salva como ativa. Todas as versões estão no histórico Multi-IA. ${finalSession.judgeReasoning || ''}`
-            : `Comparação pronta. Juiz recomenda: ${winnerLabel}. ${finalSession.judgeReasoning || ''}`,
+            ? `Multi-IA concluída. O redator final combinou as melhores partes e a nova redação foi salva como ativa. Todas as versões estão no histórico Multi-IA. ${finalSession.judgeReasoning || ''}`
+            : `Comparação pronta. Versão indicada: ${winnerLabel}. ${finalSession.judgeReasoning || ''}`,
           multi3Phase: finalSession.status === 'accepted' ? 'accepted' : 'compare',
           multi3SessionId: sessionId,
         });
@@ -1231,8 +1231,8 @@ export default function AgentModePage() {
         appendMessage({
           role: 'assistant',
           content: data.session.status === 'accepted' && data.session.command !== '/perguntar'
-            ? `Re-juizado com ${multi3Follow.judgeProvider}. Versão ${data.session.winnerProvider} ativada. ${data.session.judgeReasoning || ''}`
-            : `Juiz (${multi3Follow.judgeProvider}) recomenda: ${data.session.winnerProvider}. ${data.session.judgeReasoning || ''}`,
+            ? `Redação final refeita com ${multi3Follow.judgeProvider} e ativada. ${data.session.judgeReasoning || ''}`
+            : `A redação final não foi ativada. ${data.session.judgeReasoning || ''}`,
           status: 'success',
           multi3Phase: data.session.status === 'accepted' ? 'accepted' : 'compare',
         });
@@ -1296,14 +1296,14 @@ export default function AgentModePage() {
           updateMessage(asstId, {
             status: 'success',
             content: finalSession.status === 'accepted' && finalSession.command !== '/perguntar'
-              ? `Multi-IA concluída. Versão ${winnerLabel} salva como ativa. Todas as versões estão no histórico Multi-IA. ${finalSession.judgeReasoning || ''}`
-              : `Comparação pronta. Juiz recomenda: ${winnerLabel}. ${finalSession.judgeReasoning || ''}`,
+              ? `Multi-IA concluída. O redator final combinou as melhores partes e a nova redação foi salva como ativa. Todas as versões estão no histórico Multi-IA. ${finalSession.judgeReasoning || ''}`
+              : `Comparação pronta. Versão indicada: ${winnerLabel}. ${finalSession.judgeReasoning || ''}`,
             multi3Phase: finalSession.status === 'accepted' ? 'accepted' : 'compare',
             multi3SessionId: sessionId,
           });
           toast.success(
             finalSession.status === 'accepted' && finalSession.command !== '/perguntar'
-              ? `Versão ${winnerLabel} ativada automaticamente`
+              ? 'Redação final ativada automaticamente'
               : 'Multi-IA concluída — compare os resultados'
           );
         } else if (finalSession.status === 'failed') {
@@ -1904,7 +1904,7 @@ export default function AgentModePage() {
           onAccepted={async (session) => {
             setActiveMulti3Session(session);
             await Promise.all([refreshVersions(), refreshMulti3Sessions()]);
-            toast.success(`Versão ${session.winnerProvider} ativada`);
+            toast.success('Versão selecionada ativada');
           }}
           onSessionUpdate={setActiveMulti3Session}
           modelsByProvider={resolveMulti3Models(MULTI3_PROVIDERS, settings)}
@@ -1926,7 +1926,7 @@ function WelcomeBlock({ onPick }: { onPick: (cmd: string) => void }) {
         <h2 className="text-xl font-semibold text-white mb-1">Como posso ajudar com este capítulo?</h2>
         <p className="text-sm text-gray-400 max-w-md mx-auto leading-relaxed">
           Converse livremente ou use um <code className="text-red-400">/comando</code> editorial para gerar uma nova versão.
-          Use <code className="text-red-400">/todos</code> para executar quatro etapas com três IAs e um juiz.
+          Use <code className="text-red-400">/todos</code> para executar quatro etapas com três IAs e criar uma redação final combinada.
         </p>
       </div>
       <div className="grid grid-cols-2 gap-2 max-w-lg mx-auto">

@@ -8,7 +8,7 @@ export const MULTI3_TODOS_STAGES: Array<{
   { id: 'review', label: 'Revisar' },
   { id: 'improve', label: 'Aprimorar' },
   { id: 'finalize', label: 'Finalizar' },
-  { id: 'judge', label: 'Juiz' },
+  { id: 'judge', label: 'Redação final' },
 ];
 
 export const MULTI3_STAGE_RANGES: Record<
@@ -46,16 +46,21 @@ export function multi3OverallProgress(
   if (status === 'accepted' || status === 'awaiting_human') return 100;
 
   const candidates = session.candidates || [];
-  if (candidates.length === 0) return 0;
+  const sourceCandidates = candidates.filter((candidate) => candidate.role !== 'judge-final');
+  const judgeCandidate = candidates.find((candidate) => candidate.role === 'judge-final');
+  if (sourceCandidates.length === 0) return 0;
 
-  const candidateAverage = candidates.reduce((sum, candidate) => {
+  const candidateAverage = sourceCandidates.reduce((sum, candidate) => {
     if (candidate.status === 'completed') return sum + 100;
     return sum + clampProgress(candidate.progress);
-  }, 0) / candidates.length;
+  }, 0) / sourceCandidates.length;
 
-  // Candidate work occupies the first 90%; judging occupies the final 10%.
+  // Os três ramos ocupam 90%; a redação final do juiz ocupa os 10% restantes.
   const candidateWeighted = Math.round(candidateAverage * 0.9);
-  if (status === 'judging') return Math.max(95, candidateWeighted);
+  if (status === 'judging') {
+    const judgeProgress = judgeCandidate ? clampProgress(judgeCandidate.progress) : 50;
+    return Math.max(90, Math.min(99, 90 + Math.round(judgeProgress * 0.09)));
+  }
   if (status === 'candidates_ready') return Math.max(90, candidateWeighted);
   return Math.min(status === 'failed' ? 99 : 89, candidateWeighted);
 }

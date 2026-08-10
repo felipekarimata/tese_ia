@@ -44,6 +44,32 @@ test('combines three parallel candidates and reserves the final 10% for the judg
   assert.equal(multi3OverallProgress({ status: 'accepted', candidates }), 100);
 });
 
+test('tracks the fourth judge-final artifact without diluting the three candidate branches', () => {
+  const completed = candidates.map((candidate) => ({ ...candidate, status: 'completed' as const, progress: 100 }));
+  const withFinalEditor: Multi3Candidate[] = [
+    ...completed,
+    {
+      provider: 'gemini',
+      model: 'gemini-3.5-flash',
+      role: 'judge-final',
+      status: 'running',
+      branchIndex: 3,
+      progress: 10,
+      progressLabel: 'Redigindo a versão final',
+      currentBatch: 1,
+      totalBatches: 10,
+    },
+  ];
+
+  assert.equal(multi3OverallProgress({ status: 'judging', candidates: withFinalEditor }), 91);
+  assert.match(formatMulti3ProgressLine({
+    status: 'judging',
+    command: '/todos',
+    providers: ['openai', 'gemini', 'anthropic'],
+    candidates: withFinalEditor,
+  }), /Redigindo a versão final, lote 1\/10/);
+});
+
 test('progress message exposes the overall percentage and active model details', () => {
   const line = formatMulti3ProgressLine({
     status: 'processing',

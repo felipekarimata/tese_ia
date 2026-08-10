@@ -19,6 +19,8 @@ export type Multi3SessionStatus =
 
 export type Multi3CandidateStatus = 'running' | 'completed' | 'failed';
 
+export type Multi3CandidateRole = 'candidate' | 'judge-final';
+
 export type Multi3TodosStage =
   | 'starting'
   | 'translate'
@@ -31,6 +33,8 @@ export type Multi3Candidate = {
   provider: AIProvider;
   model: string;
   status: Multi3CandidateStatus;
+  /** Omitido em sessões antigas; nesses casos o item é um candidato normal. */
+  role?: Multi3CandidateRole;
   versionId?: string;
   versionIds?: string[];
   text?: string;
