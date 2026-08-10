@@ -23,7 +23,7 @@ import { cancelJobRequest } from '@/components/jobs-status-button';
 import { Multi3ComparePanel } from '@/components/multi-ai/multi3-compare-panel';
 import { Multi3CommandHelp } from '@/components/multi-ai/multi3-command-help';
 import { Multi3ProgressCard } from '@/components/multi-ai/multi3-progress-card';
-import { parseMulti3Command, buildMulti3ApiBody, pollMulti3Session, startMulti3WithRun, formatMulti3Progress, getMulti3FailureMessage, explainMulti3ParseFailure } from '@/lib/agent/multi3-client';
+import { parseMulti3Command, buildMulti3ApiBody, pollMulti3Session, startMulti3WithRun, formatMulti3Progress, getMulti3FailureMessage, explainMulti3ParseFailure, MULTI3_INACTIVITY_TIMEOUT_MS } from '@/lib/agent/multi3-client';
 import { MULTI3_PROVIDERS, resolveMulti3Models } from '@/lib/multi-ai/models';
 import { getAIErrorMessage } from '@/lib/ai-error-message';
 import { MULTI3_SHORT_DESCRIPTION } from '@/lib/agent/command-reference';
@@ -1044,7 +1044,7 @@ export default function AgentModePage() {
           updateMessage(message.id, { content: formatMulti3Progress(session) });
         },
         3000,
-        45 * 60 * 1000,
+        MULTI3_INACTIVITY_TIMEOUT_MS,
         `${base}/${sessionId}/run`
       );
 
@@ -1283,7 +1283,7 @@ export default function AgentModePage() {
             updateMessage(asstId, { content: formatMulti3Progress(s) });
           },
           3000,
-          45 * 60 * 1000,
+          MULTI3_INACTIVITY_TIMEOUT_MS,
           runUrl
         );
 

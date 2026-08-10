@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import JSZip from 'jszip';
+import { parseStringPromise } from 'xml2js';
 import { applyNormUpdatesToDocx } from '@/lib/norms-update/apply-docx';
 import type { NormReference } from '@/lib/norms-update/types';
 
@@ -130,6 +131,65 @@ test('keeps structural Word footnotes without duplicating their visible marker',
     assert.match(xml, /Andorra é um microestado soberano/);
     assert.equal((xml.match(/w:footnoteReference w:id="17888"/g) ?? []).length, 1);
     assert.doesNotMatch(xml, /\[6\]/);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('does not treat a self-closing Word text node as an opening tag', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'autoria-apply-'));
+  const inputPath = path.join(directory, 'input.docx');
+  const outputPath = path.join(directory, 'output.docx');
+
+  try {
+    await createDocx(
+      inputPath,
+      '<w:p><w:r><w:t xml:space="preserve"/></w:r><w:r><w:t>Andorra é um pequeno principado situado nos Pireneus.</w:t></w:r></w:p>'
+    );
+
+    const result = await applyNormUpdatesToDocx(inputPath, outputPath, [reference()]);
+    const xml = await readDocumentXml(outputPath);
+
+    assert.equal(result.appliedCount, 1);
+    assert.doesNotMatch(xml, /<w:t\b[^>]*\/>[^<]*<\/w:t>/);
+    await assert.doesNotReject(parseStringPromise(xml));
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('skips an invalid replacement while preserving other valid changes', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'autoria-apply-'));
+  const inputPath = path.join(directory, 'input.docx');
+  const outputPath = path.join(directory, 'output.docx');
+
+  try {
+    await createDocx(
+      inputPath,
+      '<w:p><w:r><w:t>Andorra é um pequeno principado situado nos Pireneus.</w:t></w:r></w:p>'
+      + '<w:p><w:r><w:t>O segundo parágrafo também deve ser atualizado.</w:t></w:r></w:p>'
+    );
+
+    const result = await applyNormUpdatesToDocx(inputPath, outputPath, [
+      reference(),
+      reference({
+        id: 'finding-invalid',
+        paragraphIndex: 1,
+        fullText: 'O segundo parágrafo também deve ser atualizado.',
+        suggestedText: 'Texto inválido\u0001 para XML.',
+      }),
+    ]);
+    const xml = await readDocumentXml(outputPath);
+
+    assert.equal(result.appliedCount, 1);
+    assert.deepEqual(result.appliedReferenceIds, ['finding-1']);
+    assert.deepEqual(result.failures, [{
+      referenceId: 'finding-invalid',
+      paragraphIndex: 1,
+      reason: 'invalid-xml',
+    }]);
+    assert.match(xml, /Andorra é um microestado soberano situado nos Pireneus\./);
+    await assert.doesNotReject(parseStringPromise(xml));
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

@@ -9,7 +9,7 @@ export type NormApplicationSummary = {
   unmatchedReferences: Array<{
     referenceId: string;
     paragraphIndex: number;
-    reason: 'missing-suggested-text' | 'text-not-found';
+    reason: 'missing-suggested-text' | 'text-not-found' | 'invalid-xml';
   }>;
 };
 

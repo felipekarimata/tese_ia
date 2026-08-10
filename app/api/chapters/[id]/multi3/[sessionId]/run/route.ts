@@ -3,7 +3,6 @@ import { executeChapterMulti3Session } from '@/lib/multi-ai/orchestrator';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
 
 export async function POST(
   _req: NextRequest,
@@ -11,8 +10,13 @@ export async function POST(
 ) {
   try {
     const { id: chapterId, sessionId } = await params;
-    const session = await executeChapterMulti3Session(chapterId, sessionId);
-    return NextResponse.json({ session });
+    void executeChapterMulti3Session(chapterId, sessionId).catch((error) => {
+      console.error('[MULTI3 RUN BACKGROUND]', error);
+    });
+    return NextResponse.json(
+      { message: 'Processamento Multi-IA iniciado', sessionId },
+      { status: 202 }
+    );
   } catch (error: any) {
     console.error('[MULTI3 RUN]', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
