@@ -12,6 +12,8 @@ export type Multi3LaunchParams = {
   args: string;
 };
 
+export const MULTI3_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
+
 export function parseMulti3Command(
   raw: string,
   settings?: {
@@ -110,11 +112,12 @@ export async function pollMulti3Session(
   basePath: string,
   onUpdate: (session: any) => void,
   intervalMs = 3000,
-  timeoutMs = 45 * 60 * 1000,
+  inactivityTimeoutMs = MULTI3_INACTIVITY_TIMEOUT_MS,
   runUrl?: string
 ): Promise<any> {
-  const start = Date.now();
   let lastRunTrigger = 0;
+  let latestActivitySeen = 0;
+  let lastActivityAt = Date.now();
 
   const maybeTriggerRun = (session: any) => {
     if (!runUrl) return;
@@ -130,11 +133,16 @@ export async function pollMulti3Session(
     }
   };
 
-  while (Date.now() - start < timeoutMs) {
+  while (true) {
     const res = await fetch(basePath, { cache: 'no-store' });
     if (res.ok) {
       const data = await res.json();
       const session = data.session;
+      const activity = latestSessionActivity(session);
+      if (activity > latestActivitySeen) {
+        latestActivitySeen = activity;
+        lastActivityAt = Date.now();
+      }
       onUpdate(session);
 
       maybeTriggerRun(session);
@@ -150,9 +158,14 @@ export async function pollMulti3Session(
         return session;
       }
     }
+
+    if (Date.now() - lastActivityAt >= inactivityTimeoutMs) {
+      throw new Error(
+        'A sessão Multi-IA ficou sem progresso por tempo demais. Ela permanece no histórico e pode ser retomada.'
+      );
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
-  throw new Error('Timeout aguardando sessão Multi-IA');
 }
 
 export { formatMulti3Progress, getMulti3FailureMessage };

@@ -1,11 +1,12 @@
 import fs from 'fs/promises';
 import JSZip from 'jszip';
+import { parseStringPromise } from 'xml2js';
 import { NormReference } from '@/lib/norms-update/types';
 
 export type NormUpdateApplyFailure = {
   referenceId: string;
   paragraphIndex: number;
-  reason: 'missing-suggested-text' | 'text-not-found';
+  reason: 'missing-suggested-text' | 'text-not-found' | 'invalid-xml';
 };
 
 export type NormUpdateApplyResult = {
@@ -35,9 +36,26 @@ type TextNodeMatch = {
 };
 
 const PARAGRAPH_PATTERN = /<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g;
-const TEXT_NODE_PATTERN = /(<w:t(?:\s[^>]*)?>)([\s\S]*?)(<\/w:t>)/g;
+// A self-closing <w:t .../> is an empty Word text node, not an opening tag.
+// Treating it as open consumes markup up to a later </w:t> and corrupts the DOCX.
+const TEXT_NODE_PATTERN = /(<w:t(?![^>]*\/>)\b(?:\s[^>]*)?>)([\s\S]*?)(<\/w:t>)/g;
 const NOTE_REFERENCE_PATTERN = /<w:(?:footnoteReference|endnoteReference)\b[^>]*\bw:id=["'](-?\d+)["'][^>]*\/?\s*>/g;
 const FLEXIBLE_WHITESPACE = '[\\s\\u00a0\\u2007\\u202f]+';
+
+async function isWellFormedXml(value: string): Promise<boolean> {
+  // xml2js/sax can be permissive with XML 1.0 control characters, while Word is not.
+  if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(value)) return false;
+  try {
+    await parseStringPromise(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function isWellFormedParagraphXml(value: string): Promise<boolean> {
+  return isWellFormedXml(`<validation-root>${value}</validation-root>`);
+}
 
 function decodeXmlText(value: string): string {
   return value.replace(
@@ -144,13 +162,15 @@ function resolveNoteMarkers(
   const referenceCount = noteReferenceCount(paragraphXml);
   if (referenceCount === 0) return null;
 
-  const markers = [...value.matchAll(/\s*\[(\d+)\]/g)]
-    .filter((match): match is RegExpMatchArray & { index: number } => match.index !== undefined)
-    .map(match => ({
-      start: match.index,
-      end: match.index + match[0].length,
-      label: match[1]
-    }));
+  const markers = [...value.matchAll(/\s*\[(\d+)\]/g)].flatMap(match =>
+    match.index === undefined
+      ? []
+      : [{
+          start: match.index,
+          end: match.index + match[0].length,
+          label: match[1]
+        }]
+  );
   if (markers.length < referenceCount) return null;
 
   const combinations = markerIndexCombinations(markers.length, referenceCount);
@@ -311,6 +331,9 @@ export async function applyNormUpdatesToDocx(
   if (!file) throw new Error('document.xml not found');
 
   let xmlContent = (await file.async('string')).normalize('NFC');
+  if (!(await isWellFormedXml(xmlContent))) {
+    throw new Error('O DOCX de origem contém um document.xml inválido');
+  }
   const sortedReferences = [...references].sort((a, b) => b.paragraphIndex - a.paragraphIndex);
   const appliedReferenceIds: string[] = [];
   const failures: NormUpdateApplyFailure[] = [];
@@ -351,9 +374,22 @@ export async function applyNormUpdatesToDocx(
       continue;
     }
 
+    if (!(await isWellFormedParagraphXml(updatedParagraphXml))) {
+      failures.push({
+        referenceId: reference.id,
+        paragraphIndex: reference.paragraphIndex,
+        reason: 'invalid-xml'
+      });
+      continue;
+    }
+
     xmlContent = `${xmlContent.slice(0, paragraph.start)}${updatedParagraphXml}${xmlContent.slice(paragraph.end)}`;
     appliedReferenceIds.push(reference.id);
     changedParagraphIndexes.add(paragraph.visibleIndex);
+  }
+
+  if (!(await isWellFormedXml(xmlContent))) {
+    throw new Error('As alterações produziram um document.xml inválido; o arquivo não foi salvo');
   }
 
   zip.file('word/document.xml', Buffer.from(xmlContent, 'utf-8'));
