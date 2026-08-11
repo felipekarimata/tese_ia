@@ -34,7 +34,7 @@ async function downloadDocument(filePath: string): Promise<Buffer> {
 /**
  * Merges DOCX files using docx-merger to preserve all formatting, images, and structure
  */
-async function mergeDocxFiles(buffers: Buffer[]): Promise<Buffer> {
+export async function mergeDocxBuffers(buffers: Buffer[]): Promise<Buffer> {
   try {
     console.log(`[DOCUMENT-MERGER] Merging ${buffers.length} documents with docx-merger...`);
 
@@ -59,7 +59,7 @@ async function mergeDocxFiles(buffers: Buffer[]): Promise<Buffer> {
 /**
  * Creates a simple cover page DOCX buffer
  */
-async function createCoverPageBuffer(thesisTitle: string): Promise<Buffer> {
+export async function createCoverPageBuffer(thesisTitle: string): Promise<Buffer> {
   const { Document, Paragraph, HeadingLevel, AlignmentType, Packer, PageBreak } = await import('docx');
 
   const doc = new Document({
@@ -139,7 +139,7 @@ export async function mergeChapterVersions(
 
     // Merge documents
     console.log('[DOCUMENT-MERGER] Merging documents...');
-    const mergedBuffer = await mergeDocxFiles(buffers);
+    const mergedBuffer = await mergeDocxBuffers(buffers);
 
     console.log('[DOCUMENT-MERGER] Merge completed successfully');
 
@@ -151,12 +151,35 @@ export async function mergeChapterVersions(
 }
 
 /**
+ * Merges already prepared chapter buffers in the exact order received.
+ * Used by the book assembly workflow after the author approves editorial changes.
+ */
+export async function mergePreparedChapterBuffers(
+  chapterBuffers: Buffer[],
+  options: MergeOptions = {}
+): Promise<Buffer> {
+  if (chapterBuffers.length === 0) {
+    throw new Error('No chapter documents supplied for merge');
+  }
+
+  const buffers: Buffer[] = [];
+  if (options.includeCoverPage && (options.customTitle || options.thesisTitle)) {
+    buffers.push(await createCoverPageBuffer(
+      options.customTitle || options.thesisTitle || 'Livro'
+    ));
+  }
+  buffers.push(...chapterBuffers);
+  return mergeDocxBuffers(buffers);
+}
+
+/**
  * Uploads merged document to Supabase Storage
  */
 export async function uploadMergedDocument(
   buffer: Buffer,
   thesisId: string,
-  versionId: string
+  versionId: string,
+  options: { upsert?: boolean } = {}
 ): Promise<string> {
   const storagePath = `theses/${thesisId}/compiled/${versionId}.docx`;
 
@@ -164,7 +187,7 @@ export async function uploadMergedDocument(
     .from('documents')
     .upload(storagePath, buffer, {
       contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      upsert: false,
+      upsert: options.upsert ?? false,
     });
 
   if (error) {

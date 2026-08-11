@@ -12,7 +12,8 @@
     "test:multi3": "tsx --test tests/multi3-config.test.ts tests/multi3-progress.test.ts tests/multi3-client.test.ts tests/judge-editor.test.ts tests/version-labels.test.ts",
     "test:todos": "tsx --test tests/todos-currentness-review.test.ts",
     "test:translation": "tsx --test tests/translation-language-gate.test.ts",
-    "test:ai-compat": "tsx --test tests/anthropic-compat.test.ts"
+    "test:ai-compat": "tsx --test tests/anthropic-compat.test.ts",
+    "test:book-assembly": "tsx --test tests/book-assembly.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
