@@ -932,6 +932,8 @@ export type ApplyDocxSuggestion = {
   id?: string;
   originalText: string;
   improvedText: string;
+  /** Zero-based occurrence among identical normalized paragraphs. */
+  occurrenceIndex?: number;
 };
 
 /**
@@ -972,7 +974,9 @@ export async function applySuggestionsToDocx(
       continue;
     }
 
-    const offset = usedOffsets.get(key) ?? 0;
+    const offset = Number.isInteger(sug.occurrenceIndex)
+      ? Math.max(0, sug.occurrenceIndex as number)
+      : (usedOffsets.get(key) ?? 0);
     const candidate = candidates[offset];
     if (!candidate) {
       unmatchedCount++;
@@ -980,7 +984,7 @@ export async function applySuggestionsToDocx(
     }
 
     candidate.translatedText = sug.improvedText;
-    usedOffsets.set(key, offset + 1);
+    usedOffsets.set(key, Math.max(usedOffsets.get(key) ?? 0, offset + 1));
     appliedCount++;
   }
 
