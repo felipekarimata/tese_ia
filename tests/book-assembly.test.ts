@@ -23,6 +23,7 @@ import {
   harmonizationProgress,
 } from '../lib/book-assembly/progress';
 import { buildChapterHarmonizationPrompt } from '../lib/book-assembly/prompts';
+import { isMissingBookAssemblyTable } from '../lib/book-assembly/schema';
 import { mergePreparedChapterBuffers } from '../lib/thesis/document-merger';
 import { applySuggestionsToDocx } from '../lib/translation/docx-translator';
 import type { BookEditorialPlan, BookSuggestion } from '../lib/book-assembly/types';
@@ -117,6 +118,12 @@ test('progress ranges remain monotonic across editorial phases', () => {
   assert.ok(analysisProgress(2, 4) < harmonizationProgress(1, 4));
   assert.ok(harmonizationProgress(4, 4) < finalizationProgress(1, 4));
   assert.equal(finalizationProgress(4, 4), 96);
+});
+
+test('recognizes missing book assembly schema errors from Postgres and PostgREST', () => {
+  assert.equal(isMissingBookAssemblyTable({ code: '42P01', message: 'relation does not exist' }), true);
+  assert.equal(isMissingBookAssemblyTable({ code: 'PGRST205', message: "Could not find the table 'public.book_assembly_jobs' in the schema cache" }), true);
+  assert.equal(isMissingBookAssemblyTable({ code: '42501', message: 'permission denied' }), false);
 });
 
 test('harmonization prompt explicitly preserves good pt-BR text', () => {

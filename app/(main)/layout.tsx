@@ -5,7 +5,7 @@ import { UserMenu } from "@/components/user-menu";
 import { JobsStatusButton } from "@/components/jobs-status-button";
 import { SettingsButton } from "@/components/settings-button";
 import { usePathname } from "next/navigation";
-import { FileText, Terminal } from "lucide-react";
+import { FileStack, FileText, Terminal } from "lucide-react";
 
 export default function MainLayout({
   children,
@@ -18,6 +18,8 @@ export default function MainLayout({
     if (path === "/") return pathname === path;
     return pathname.startsWith(path);
   };
+
+  const isBookActive = pathname === "/book" || /^\/theses\/[^/]+\/book(?:\/|$)/.test(pathname);
 
   return (
     <div className="min-h-screen bg-black text-white relative">
@@ -144,6 +146,23 @@ export default function MainLayout({
               </Link>
 
               <JobsStatusButton />
+
+              <Link
+                href="/book"
+                className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  isBookActive
+                    ? "text-white"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                {isBookActive && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-red-500/20 to-red-600/10 rounded-lg border border-red-500/20"></div>
+                )}
+                <div className="relative flex items-center gap-2">
+                  <FileStack className="h-4 w-4" />
+                  <span className="hidden sm:inline">Montar Livro</span>
+                </div>
+              </Link>
 
               <SettingsButton />
 
