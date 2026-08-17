@@ -427,6 +427,130 @@ async function createThesisVersion(params: {
   return { id: inserted.id, versionNumber: inserted.version_number };
 }
 
+/**
+ * Global assemblies create a fresh thesis container before processing. Once
+ * the merged DOCX exists, expose it as that thesis' current chapter as well,
+ * so the resulting book is an independent, editable document instead of a
+ * version hidden inside one of its source uploads.
+ *
+ * Legacy per-thesis assemblies are left untouched: only containers carrying
+ * the global builder marker are materialized this way.
+ */
+async function materializeIndependentBook(params: {
+  job: BookAssemblyJob;
+  filePath: string;
+  totalPages: number;
+  thesisVersionId: string;
+}): Promise<void> {
+  const { data: thesis, error: thesisError } = await (supabase as any)
+    .from('theses')
+    .select('id, description')
+    .eq('id', params.job.thesisId)
+    .single();
+  if (thesisError || !thesis) {
+    throw new Error(`Falha ao localizar o livro de destino: ${thesisError?.message || 'não encontrado'}`);
+  }
+  if (!String(thesis.description || '').startsWith('Livro em montagem a partir de ')) {
+    return;
+  }
+
+  let { data: chapter, error: chapterLookupError } = await (supabase as any)
+    .from('chapters')
+    .select('id, current_version_id')
+    .eq('thesis_id', params.job.thesisId)
+    .eq('chapter_order', 1)
+    .maybeSingle();
+  if (chapterLookupError) {
+    throw new Error(`Falha ao preparar o livro como documento: ${chapterLookupError.message}`);
+  }
+
+  if (!chapter) {
+    const { data: insertedChapter, error: chapterInsertError } = await (supabase as any)
+      .from('chapters')
+      .insert({
+        thesis_id: params.job.thesisId,
+        title: params.job.title,
+        chapter_order: 1,
+      })
+      .select('id, current_version_id')
+      .single();
+    if (chapterInsertError || !insertedChapter) {
+      throw new Error(`Falha ao criar o documento final do livro: ${chapterInsertError?.message || 'erro desconhecido'}`);
+    }
+    chapter = insertedChapter;
+  }
+
+  const { data: existingVersion, error: existingVersionError } = await (supabase as any)
+    .from('chapter_versions')
+    .select('id')
+    .eq('chapter_id', chapter.id)
+    .contains('metadata', { bookAssemblyJobId: params.job.id })
+    .limit(1)
+    .maybeSingle();
+  if (existingVersionError) {
+    throw new Error(`Falha ao verificar o documento final do livro: ${existingVersionError.message}`);
+  }
+
+  let chapterVersionId = existingVersion?.id || null;
+  if (!chapterVersionId) {
+    const metadata = {
+      kind: 'book-output',
+      bookAssemblyJobId: params.job.id,
+      thesisVersionId: params.thesisVersionId,
+      sourceChapters: params.job.chapterSelections.map((selection) => ({
+        chapterId: selection.chapterId,
+        versionId: selection.versionId,
+        order: selection.order,
+        title: selection.chapterTitle,
+      })),
+    };
+    const { data: latest } = await (supabase as any)
+      .from('chapter_versions')
+      .select('version_number')
+      .eq('chapter_id', chapter.id)
+      .order('version_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const { data: insertedVersion, error: insertError } = await (supabase as any)
+      .from('chapter_versions')
+      .insert({
+        chapter_id: chapter.id,
+        version_number: Number(latest?.version_number || 0) + 1,
+        file_path: params.filePath,
+        pages: params.totalPages,
+        chunks_count: 0,
+        created_by_operation: 'book-assembly',
+        metadata,
+      })
+      .select('id')
+      .single();
+    if (insertError || !insertedVersion) {
+      throw new Error(`Falha ao registrar o documento final do livro: ${insertError?.message || 'erro desconhecido'}`);
+    }
+    chapterVersionId = insertedVersion.id;
+  }
+
+  if (chapter.current_version_id !== chapterVersionId) {
+    const { error: currentVersionError } = await (supabase as any)
+      .from('chapters')
+      .update({ current_version_id: chapterVersionId })
+      .eq('id', chapter.id);
+    if (currentVersionError) {
+      throw new Error(`Falha ao ativar o documento final do livro: ${currentVersionError.message}`);
+    }
+  }
+
+  const { error: descriptionError } = await (supabase as any)
+    .from('theses')
+    .update({
+      description: `Livro montado com ${params.job.chapterSelections.length} capítulo${params.job.chapterSelections.length === 1 ? '' : 's'}.`,
+    })
+    .eq('id', params.job.thesisId);
+  if (descriptionError) {
+    console.warn('[BOOK-ASSEMBLY] Could not update independent book description:', descriptionError.message);
+  }
+}
+
 async function finalizeBook(job: BookAssemblyJob): Promise<void> {
   const total = job.chapterSelections.length;
   const approved = new Set(job.approvedSuggestionIds);
@@ -502,6 +626,15 @@ async function finalizeBook(job: BookAssemblyJob): Promise<void> {
       chaptersProcessed: total,
     };
     const version = await createThesisVersion({ job, filePath: storagePath, report });
+    await materializeIndependentBook({
+      job,
+      filePath: storagePath,
+      totalPages: job.chapterSelections.reduce(
+        (sum, selection) => sum + (selection.pages || 0),
+        0
+      ),
+      thesisVersionId: version.id,
+    });
 
     await updateBookAssemblyJob(job.id, {
       status: 'completed',

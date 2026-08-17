@@ -66,6 +66,16 @@ export async function listBookAssemblyJobs(thesisId: string): Promise<BookAssemb
   return (data || []).map(normalizeBookAssemblyJob);
 }
 
+export async function listAllBookAssemblyJobs(): Promise<BookAssemblyJob[]> {
+  const { data, error } = await (supabase as any)
+    .from('book_assembly_jobs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error) throw new Error(`Falha ao listar montagens: ${error.message}`);
+  return (data || []).map(normalizeBookAssemblyJob);
+}
+
 export type BookJobUpdate = {
   status?: BookAssemblyStatus;
   editorialPlan?: BookEditorialPlan | null;

@@ -24,6 +24,7 @@ import {
 } from '../lib/book-assembly/progress';
 import { buildChapterHarmonizationPrompt } from '../lib/book-assembly/prompts';
 import { isMissingBookAssemblyTable } from '../lib/book-assembly/schema';
+import { formatBookSourceTitle } from '../lib/book-assembly/sources';
 import { mergePreparedChapterBuffers } from '../lib/thesis/document-merger';
 import { applySuggestionsToDocx } from '../lib/translation/docx-translator';
 import type { BookEditorialPlan, BookSuggestion } from '../lib/book-assembly/types';
@@ -124,6 +125,17 @@ test('recognizes missing book assembly schema errors from Postgres and PostgREST
   assert.equal(isMissingBookAssemblyTable({ code: '42P01', message: 'relation does not exist' }), true);
   assert.equal(isMissingBookAssemblyTable({ code: 'PGRST205', message: "Could not find the table 'public.book_assembly_jobs' in the schema cache" }), true);
   assert.equal(isMissingBookAssemblyTable({ code: '42501', message: 'permission denied' }), false);
+});
+
+test('uses the upload title for generic single-upload chapters', () => {
+  assert.equal(
+    formatBookSourceTitle('Capítulo 5 — Centros Offshore', 'Capítulo 1', 1),
+    'Capítulo 5 — Centros Offshore'
+  );
+  assert.equal(
+    formatBookSourceTitle('Tese completa', 'Referencial teórico', 2),
+    'Tese completa — Referencial teórico'
+  );
 });
 
 test('harmonization prompt explicitly preserves good pt-BR text', () => {
