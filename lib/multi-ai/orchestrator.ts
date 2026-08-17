@@ -49,10 +49,9 @@ import { extractDocumentStructure } from '@/lib/improvement/document-analyzer';
 import { chatWithAgent } from '@/lib/ai/agent-chat';
 import { supabase } from '@/lib/supabase';
 import {
-  BOOK_FINALIZE_INSTRUCTIONS,
-  BOOK_IMPROVE_INSTRUCTIONS,
   BOOK_TECHNICAL_GLOSSARY,
 } from '@/lib/book-workflow/prompts';
+import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
 import { runTodosCurrentnessReviewStep } from '@/lib/todos/currentness-review-step';
 
 const STYLE_MAP: Record<string, 'academic' | 'professional' | 'simplified'> = {
@@ -448,6 +447,10 @@ async function runTodosCandidate(
   branchIndex: number,
   sessionId: string
 ): Promise<Multi3Candidate> {
+  const [improveInstructions, finalizeInstructions] = await Promise.all([
+    getEffectiveCommandPrompt('improve'),
+    getEffectiveCommandPrompt('finalize'),
+  ]);
   const versionIds: string[] = [];
   const stepMeta = (step: string) => ({
     ...meta,
@@ -510,7 +513,7 @@ async function runTodosCandidate(
     reviewed.versionId,
     provider,
     model,
-    BOOK_IMPROVE_INSTRUCTIONS,
+    improveInstructions,
     stepMeta('improve'),
     sessionId,
     'improve',
@@ -526,7 +529,7 @@ async function runTodosCandidate(
     improved.versionId,
     provider,
     model,
-    BOOK_FINALIZE_INSTRUCTIONS,
+    finalizeInstructions,
     stepMeta('finalize'),
     sessionId,
     'adjust',

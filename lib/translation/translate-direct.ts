@@ -7,7 +7,7 @@ import { isGemini429, parseGeminiRetryDelayMs, sleep } from '../ai/gemini-retry'
 import { protectElements, restoreElements, validatePlaceholders } from './validation-enhancer';
 import { protectGlossaryTerms, restoreGlossaryTerms, DEFAULT_GLOSSARY, type GlossaryEntry } from './glossary';
 import { sanitizeEditorialText } from '@/lib/book-workflow/output';
-import { BOOK_TRANSLATION_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
+import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
 
 /**
  * Traduz texto usando APENAS OpenAI com retry automático em caso de rate limit
@@ -36,10 +36,13 @@ export async function translateTextDirect(
 
   // DEBUG: Log source/target languages
   console.log(`[TRANSLATE-DIRECT] Source: ${sourceLanguage || 'AUTO-DETECT'} → Target: ${targetLanguage}`);
+  const editorialInstructions = editorialProfile === 'book-ptbr'
+    ? await getEffectiveCommandPrompt('translate')
+    : '';
 
   const prompt = `You are a PROFESSIONAL TRANSLATOR. Your ONLY job is to translate text WORD-BY-WORD with ABSOLUTE FIDELITY.
 
-${editorialProfile === 'book-ptbr' ? BOOK_TRANSLATION_INSTRUCTIONS : ''}
+${editorialInstructions}
 
 TARGET LANGUAGE: ${targetLanguage.toUpperCase()}
 ${sourceLanguage ? `SOURCE LANGUAGE: ${sourceLanguage.toUpperCase()}` : 'Auto-detect source language'}

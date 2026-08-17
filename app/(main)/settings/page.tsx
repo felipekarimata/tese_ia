@@ -63,8 +63,8 @@ export default function SettingsPage() {
     toggleModel,
     loadAllModels,
     saveSettings,
-    setSkillOverride,
-    clearSkillOverride,
+    setCommandPromptOverride,
+    clearCommandPromptOverride,
     updateSkills,
     updateMulti3,
   } = useSettingsForm();
@@ -123,7 +123,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-3xl font-bold">Configurações</h1>
         <p className="text-muted-foreground">
-          Chaves de API, modelos, envio de documento e skills (prompts dos comandos).
+          Chaves de API, modelos, envio de documento e instruções dos comandos.
         </p>
       </div>
 
@@ -215,16 +215,17 @@ export default function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Skills / Comandos</CardTitle>
+          <CardTitle>Prompts dos comandos</CardTitle>
           <CardDescription>
-            Consulte os comandos ativos e personalize os prompts compatíveis ou crie novas skills.
+            Consulte e personalize as instruções realmente usadas por cada comando e pelo `/todos`.
+            As alterações são persistidas no banco ao salvar.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <SkillsSection
             settings={settings}
-            setSkillOverride={setSkillOverride}
-            clearSkillOverride={clearSkillOverride}
+            setCommandPromptOverride={setCommandPromptOverride}
+            clearCommandPromptOverride={clearCommandPromptOverride}
             updateSkills={updateSkills}
           />
         </CardContent>

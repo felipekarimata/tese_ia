@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,15 +15,15 @@ import {
 } from '@/components/ui/select';
 import type { AppSettings } from './use-settings-form';
 import {
-  BUILTIN_SKILL_KEYS,
-  SKILL_KEY_LABELS,
   type CustomSkill,
-  type SkillKey,
   type SkillsSettings,
 } from '@/lib/skills/types';
-import { getDefaultPromptBuilder } from '@/lib/skills/defaults';
 import { validateCustomSkillName } from '@/lib/skills/resolver';
-import { BOOK_COMMANDS, CHAPTER_UTILITY_COMMANDS } from '@/lib/book-workflow/commands';
+import {
+  COMMAND_PROMPT_DEFINITIONS,
+  resolveCommandPrompt,
+  type CommandPromptKey,
+} from '@/lib/book-workflow/prompts';
 import { Plus, RotateCcw, Trash2 } from 'lucide-react';
 
 const PLACEHOLDER_HINT =
@@ -31,36 +31,22 @@ const PLACEHOLDER_HINT =
 
 type SkillsSectionProps = {
   settings: AppSettings | null;
-  setSkillOverride: (key: string, value: string) => void;
-  clearSkillOverride: (key: string) => void;
+  setCommandPromptOverride: (key: CommandPromptKey, value: string) => void;
+  clearCommandPromptOverride: (key: CommandPromptKey) => void;
   updateSkills: (patch: Partial<SkillsSettings>) => void;
 };
 
-function getBuiltinDefaultPreview(key: SkillKey): string {
-  const builder = getDefaultPromptBuilder(key);
-  return builder({
-    args: 'exemplo de instrução',
-    style: 'acadêmico',
-    section: 'Introdução',
-    paragraphs: '[1] Texto de exemplo...',
-    document: '[[P0001]]Texto...[[/P0001]]',
-    creativity: 5,
-    audience: 'público geral',
-    language: 'português',
-  });
-}
-
 export function SkillsSection({
   settings,
-  setSkillOverride,
-  clearSkillOverride,
+  setCommandPromptOverride,
+  clearCommandPromptOverride,
   updateSkills,
 }: SkillsSectionProps) {
   const [tab, setTab] = useState<'builtin' | 'custom'>('builtin');
-  const [expandedKey, setExpandedKey] = useState<SkillKey | null>('adjust');
+  const [expandedKey, setExpandedKey] = useState<CommandPromptKey | null>('translate');
 
   const skills = settings?.skills;
-  const overrides = skills?.promptOverrides ?? {};
+  const commandPromptOverrides = settings?.commandPrompts ?? {};
   const customSkills = skills?.customSkills ?? [];
 
   const [draft, setDraft] = useState<Partial<CustomSkill>>({
@@ -70,18 +56,13 @@ export function SkillsSection({
     prompt: '',
   });
 
-  const directKeys = useMemo(
-    () => BUILTIN_SKILL_KEYS.filter((key) => ['translate', 'review', 'adjust'].includes(key)),
-    []
-  );
-
-  const renderBuiltinGroup = (keys: SkillKey[], title: string) => (
+  const renderCommandPrompts = () => (
     <div className="space-y-3">
-      <p className="text-sm font-medium text-muted-foreground">{title}</p>
-      {keys.map((key) => {
+      {COMMAND_PROMPT_DEFINITIONS.map((definition) => {
+        const key = definition.key;
         const isExpanded = expandedKey === key;
-        const current = overrides[key] ?? '';
-        const isOverridden = Boolean(current.trim());
+        const current = resolveCommandPrompt(key, commandPromptOverrides);
+        const isOverridden = Boolean(commandPromptOverrides[key]?.trim());
         return (
           <div key={key} className="border rounded-lg overflow-hidden">
             <button
@@ -89,29 +70,39 @@ export function SkillsSection({
               className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/50"
               onClick={() => setExpandedKey(isExpanded ? null : key)}
             >
-              <span className="font-medium">{SKILL_KEY_LABELS[key]}</span>
-              {isOverridden && (
-                <Badge variant="secondary" className="text-xs">
-                  Personalizado
-                </Badge>
-              )}
+              <div>
+                <span className="font-medium text-indigo-300">{definition.label}</span>
+                <p className="mt-1 text-xs font-normal text-muted-foreground">
+                  {definition.description}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                {definition.usedInTodos && key !== 'todos:final-editor' && (
+                  <Badge variant="outline" className="text-xs">Também no /todos</Badge>
+                )}
+                {isOverridden && (
+                  <Badge variant="secondary" className="text-xs">Personalizado</Badge>
+                )}
+              </div>
             </button>
             {isExpanded && (
               <div className="px-4 pb-4 space-y-2 border-t">
-                <p className="text-xs text-muted-foreground pt-2">{PLACEHOLDER_HINT}</p>
+                <p className="text-xs text-muted-foreground pt-2">
+                  {definition.placeholderHint
+                    || 'Edite somente a orientação editorial. O formato técnico de resposta e as proteções do DOCX continuam controlados pelo sistema.'}
+                </p>
                 <Textarea
-                  rows={10}
+                  rows={14}
                   className="font-mono text-xs"
                   value={current}
-                  placeholder={getBuiltinDefaultPreview(key).slice(0, 200) + '...'}
-                  onChange={(e) => setSkillOverride(key, e.target.value)}
+                  onChange={(e) => setCommandPromptOverride(key, e.target.value)}
                 />
                 <div className="flex gap-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => clearSkillOverride(key)}
+                    onClick={() => clearCommandPromptOverride(key)}
                     disabled={!isOverridden}
                   >
                     <RotateCcw className="h-3.5 w-3.5 mr-1" />
@@ -168,7 +159,7 @@ export function SkillsSection({
           size="sm"
           onClick={() => setTab('builtin')}
         >
-          Skills built-in
+          Prompts dos comandos
         </Button>
         <Button
           type="button"
@@ -182,23 +173,16 @@ export function SkillsSection({
 
       {tab === 'builtin' ? (
         <div className="space-y-6">
-          <div className="space-y-3">
-            <p className="text-sm font-medium text-muted-foreground">Comandos ativos</p>
-            {[...BOOK_COMMANDS, ...CHAPTER_UTILITY_COMMANDS].map((command) => (
-              <div key={command.name} className="rounded-lg border px-4 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <code className="font-medium text-indigo-300">
-                    {command.name}{command.args ? ` ${command.args}` : ''}
-                  </code>
-                  {command.name === '/todos' && (
-                    <Badge variant="outline">3 IAs + redator final</Badge>
-                  )}
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{command.description}</p>
-              </div>
-            ))}
+          <div className="rounded-lg border border-blue-900/60 bg-blue-950/20 px-4 py-3 text-sm text-blue-100">
+            <p className="font-medium">Uma única instrução por etapa</p>
+            <p className="mt-1 text-xs text-blue-200/80">
+              `/todos` reutiliza exatamente os prompts salvos de `/traduzir`, `/revisar`,
+              `/aprimorar` e `/finalizar`; depois aplica o prompt próprio do redator final.
+              `/ajustar` não faz parte do `/todos`. O comando `/comparar` apenas abre versões lado a
+              lado e, por isso, não envia prompt a uma IA.
+            </p>
           </div>
-          {renderBuiltinGroup(directKeys, 'Prompts editáveis compatíveis')}
+          {renderCommandPrompts()}
         </div>
       ) : (
         <div className="space-y-6">

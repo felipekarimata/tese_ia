@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createOperationJob, executeAdjustOperation } from '@/lib/thesis/chapter-operations';
 import { AIProvider } from '@/lib/ai/types';
 import { supabase } from '@/lib/supabase';
+import {
+  resolveBookCommandInstructions,
+  type AdjustableBookCommand,
+} from '@/lib/book-workflow/prompt-settings';
 
 type ReferenceInput = {
   type: 'link' | 'file';
@@ -13,6 +17,10 @@ type ReferenceInput = {
   fileSize?: number;
   mimeType?: string;
 };
+
+const ADJUSTABLE_BOOK_COMMANDS = new Set<AdjustableBookCommand>([
+  '/ajustar', '/aprimorar', '/finalizar',
+]);
 
 export async function POST(
   req: NextRequest,
@@ -30,10 +38,11 @@ export async function POST(
       useGrounding = false,
       references = [],
       contextVersionIds = [],
-      editorialProfile
+      editorialProfile,
+      command,
     }: {
       versionId: string;
-      instructions: string;
+      instructions?: string;
       creativity?: number;
       provider?: AIProvider;
       model?: string;
@@ -41,6 +50,7 @@ export async function POST(
       references?: ReferenceInput[];
       contextVersionIds?: string[];
       editorialProfile?: 'book';
+      command?: AdjustableBookCommand;
     } = body;
 
     if (!versionId) {
@@ -50,7 +60,22 @@ export async function POST(
       );
     }
 
-    if (!instructions || instructions.trim() === '') {
+    if (command === '/ajustar' && !instructions?.trim()) {
+      return NextResponse.json(
+        { error: 'Instructions are required' },
+        { status: 400 }
+      );
+    }
+
+    if (command && !ADJUSTABLE_BOOK_COMMANDS.has(command)) {
+      return NextResponse.json({ error: 'Unsupported command' }, { status: 400 });
+    }
+
+    const effectiveInstructions = editorialProfile === 'book' && command
+      ? await resolveBookCommandInstructions(command, instructions || '')
+      : instructions?.trim() || '';
+
+    if (!effectiveInstructions) {
       return NextResponse.json(
         { error: 'Instructions are required' },
         { status: 400 }
@@ -58,7 +83,7 @@ export async function POST(
     }
 
     console.log(`[CHAPTER-ADJUST-API] Starting adjust for chapter ${chapterId}, version ${versionId}`);
-    console.log(`[CHAPTER-ADJUST-API] Instructions: ${instructions.substring(0, 100)}...`);
+    console.log(`[CHAPTER-ADJUST-API] Instructions: ${effectiveInstructions.substring(0, 100)}...`);
     console.log(`[CHAPTER-ADJUST-API] Creativity: ${creativity}`);
     console.log(`[CHAPTER-ADJUST-API] Provider: ${provider}, Model: ${model}`);
     console.log(`[CHAPTER-ADJUST-API] Use Grounding: ${useGrounding}`);
@@ -97,7 +122,7 @@ export async function POST(
       jobId,
       chapterId,
       versionId,
-      instructions,
+      effectiveInstructions,
       creativity,
       provider,
       model,

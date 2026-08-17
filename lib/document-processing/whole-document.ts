@@ -11,7 +11,8 @@ import { SupportedLanguage } from '@/lib/translation/types';
 import { buildCustomWholeDocumentPrompt } from '@/lib/skills/custom-whole-document';
 import { resolveSkillPrompt } from '@/lib/skills/resolver';
 import type { SkillContext, SkillKey } from '@/lib/skills/types';
-import { BOOK_TRANSLATION_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
+import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
+import { resolveCommandPrompt } from '@/lib/book-workflow/prompts';
 import { assessPortugueseDocument } from '@/lib/translation/language-gate';
 
 export type PromptParagraph = {
@@ -35,6 +36,8 @@ export type WholeDocumentOptions = {
   maxChars?: number;
   skillContext?: SkillContext;
   editorialProfile?: 'book-ptbr';
+  /** Resolved at execution time so the pure prompt builder remains testable. */
+  editorialInstructions?: string;
 };
 
 export type WholeDocumentResult = {
@@ -105,7 +108,7 @@ export function buildWholeDocumentPrompt(
       context
     );
     return options.editorialProfile === 'book-ptbr'
-      ? `${BOOK_TRANSLATION_INSTRUCTIONS}\n\n${translationPrompt}`
+      ? `${options.editorialInstructions || resolveCommandPrompt('translate')}\n\n${translationPrompt}`
       : translationPrompt;
   }
 
@@ -293,6 +296,12 @@ export async function processWholeDocument(
     }
 
     const serialized = serializeDocumentWithMarkers(paragraphs);
+    const promptOptions = options.editorialProfile === 'book-ptbr'
+      ? {
+          ...options,
+          editorialInstructions: await getEffectiveCommandPrompt('translate'),
+        }
+      : options;
     const prompt = options.customPrompt?.trim()
       ? buildCustomWholeDocumentPrompt(options.customPrompt, serialized, {
           args: options.adjustInstructions,
@@ -300,7 +309,7 @@ export async function processWholeDocument(
           audience: options.targetAudience,
           language: options.targetLanguage,
         })
-      : buildWholeDocumentPrompt(options.task, serialized, options);
+      : buildWholeDocumentPrompt(options.task, serialized, promptOptions);
 
     let response = await callWholeDocumentAI(prompt, options.provider, options.model);
     let { map, matchRate } = parseMarkedResponse(response, paragraphs);

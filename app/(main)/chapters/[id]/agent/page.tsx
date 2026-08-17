@@ -60,11 +60,6 @@ import {
   type BookCommandName,
 } from '@/lib/book-workflow/commands';
 import {
-  BOOK_FINALIZE_INSTRUCTIONS,
-  BOOK_IMPROVE_INSTRUCTIONS,
-  buildBookAdjustInstructions,
-} from '@/lib/book-workflow/prompts';
-import {
   BOOK_WORKFLOW_STEPS,
   completeBookWorkflowStep,
   createBookWorkflowState,
@@ -636,7 +631,9 @@ export default function AgentModePage() {
 
     const asstId = appendMessage({
       role: 'assistant',
-      content: `Aplicando ajuste: "${instructions.slice(0, 80)}${instructions.length > 80 ? '...' : ''}"`,
+      content: command === '/ajustar'
+        ? `Aplicando ajuste: "${instructions.slice(0, 80)}${instructions.length > 80 ? '...' : ''}"`
+        : `Executando ${command} com as instruções salvas em Configurações...`,
       status: 'running',
       command,
       aiProvider: ai.provider,
@@ -651,6 +648,7 @@ export default function AgentModePage() {
         provider: ai.provider, model: ai.model, useGrounding: options.useGrounding ?? false,
         references: [], contextVersionIds: options.contextVersionIds ?? [],
         editorialProfile: 'book',
+        command,
       }),
     });
     if (!res.ok) {
@@ -762,13 +760,13 @@ export default function AgentModePage() {
         return runBookReview(versionId);
       case 3:
         return Boolean(await runAdjustPipeline(
-          buildBookAdjustInstructions(state.authorInstruction),
+          state.authorInstruction,
           '/ajustar',
           { versionId }
         ));
       case 4:
         return Boolean(await runAdjustPipeline(
-          BOOK_IMPROVE_INSTRUCTIONS,
+          '',
           '/aprimorar',
           { useGrounding: true, versionId }
         ));
@@ -778,7 +776,7 @@ export default function AgentModePage() {
           .map((sibling) => sibling.currentVersionId)
           .filter((id): id is string => Boolean(id));
         return Boolean(await runAdjustPipeline(
-          BOOK_FINALIZE_INSTRUCTIONS,
+          '',
           '/finalizar',
           { contextVersionIds: previousVersionIds, versionId }
         ));
@@ -1481,7 +1479,7 @@ export default function AgentModePage() {
             appendMessage({ role: 'system', content: 'Descreva o ajuste. Ex: /ajustar expandir a conclusão com mais exemplos.', status: 'error' });
             return;
           }
-          await runAdjustPipeline(buildBookAdjustInstructions(args));
+          await runAdjustPipeline(args);
           return;
         }
 
@@ -1491,7 +1489,7 @@ export default function AgentModePage() {
         }
 
         case '/aprimorar': {
-          await runAdjustPipeline(BOOK_IMPROVE_INSTRUCTIONS, '/aprimorar', { useGrounding: true });
+          await runAdjustPipeline('', '/aprimorar', { useGrounding: true });
           return;
         }
 
@@ -1500,7 +1498,7 @@ export default function AgentModePage() {
             .filter((sibling) => sibling.chapterOrder < (chapter?.chapterOrder ?? 0))
             .map((sibling) => sibling.currentVersionId)
             .filter((id): id is string => Boolean(id));
-          await runAdjustPipeline(BOOK_FINALIZE_INSTRUCTIONS, '/finalizar', {
+          await runAdjustPipeline('', '/finalizar', {
             contextVersionIds: previousVersionIds,
           });
           return;

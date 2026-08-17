@@ -22,7 +22,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
-import { BOOK_TRANSLATION_INSTRUCTIONS } from '@/lib/book-workflow/prompts';
+import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
 import { sanitizeEditorialText } from '@/lib/book-workflow/output';
 import { assessPortugueseDocument } from '@/lib/translation/language-gate';
 
@@ -1239,9 +1239,12 @@ async function generateTranslationSuggestions(
   apiKey: string,
   editorialProfile?: 'book-ptbr'
 ): Promise<any[]> {
+  const editorialInstructions = editorialProfile === 'book-ptbr'
+    ? await getEffectiveCommandPrompt('translate')
+    : '';
   const prompt = `You are a professional translator. Translate the following text ${sourceLanguage ? `from ${sourceLanguage}` : ''} to ${targetLanguage}.
 
-${editorialProfile === 'book-ptbr' ? BOOK_TRANSLATION_INSTRUCTIONS : ''}
+${editorialInstructions}
 
 For each paragraph, provide:
 - originalText: the exact original text (unchanged)

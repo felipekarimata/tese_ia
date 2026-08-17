@@ -6,6 +6,7 @@ import { DEFAULT_SKILLS_SETTINGS } from './skills/types';
 import { RECOMMENDED_MODELS } from './ai/model-registry';
 import type { Multi3Settings } from './multi-ai/types';
 import { DEFAULT_MULTI3_SETTINGS, normalizeMulti3Settings } from './multi-ai/models';
+import type { CommandPromptOverrides } from './book-workflow/prompts';
 
 export type Chunk = {
   ix: number;
@@ -95,6 +96,7 @@ export type Settings = {
   multi3: Multi3Settings;
   documentProcessing?: DocumentProcessingSettings;
   skills?: SkillsSettings;
+  commandPrompts?: CommandPromptOverrides;
   pricesUSD: {
     [modelName: string]: {
       in: number;
@@ -174,6 +176,7 @@ export const state: {
       fullContextMaxChars: 120000,
     },
     skills: { ...DEFAULT_SKILLS_SETTINGS },
+    commandPrompts: {},
     pricesUSD: {
       "gpt-5.6-terra": { in: 0.005, out: 0.03 },
       "gpt-5.6-sol": { in: 0.005, out: 0.03 },

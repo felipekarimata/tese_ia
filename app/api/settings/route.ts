@@ -3,6 +3,10 @@ import { state, toPublicSettings } from '@/lib/state';
 import type { SkillsSettings } from '@/lib/skills/types';
 import { DEFAULT_SKILLS_SETTINGS } from '@/lib/skills/types';
 import { normalizeMulti3Settings } from '@/lib/multi-ai/models';
+import {
+  loadCommandPromptOverrides,
+  saveCommandPromptOverrides,
+} from '@/lib/book-workflow/prompt-settings';
 
 export const runtime = 'nodejs';
 
@@ -17,6 +21,11 @@ function mergeSkills(incoming?: SkillsSettings): void {
 
 export async function GET() {
   try {
+    state.settings.commandPrompts = await loadCommandPromptOverrides({
+      force: true,
+      tolerateMissingMigration: true,
+      fallbackToDefaults: true,
+    });
     return NextResponse.json({
       settings: toPublicSettings(state.settings),
     });
@@ -32,7 +41,17 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { openaiKey, googleKey, xaiKey, anthropicKey, models, multi3, documentProcessing, skills } = body;
+    const {
+      openaiKey,
+      googleKey,
+      xaiKey,
+      anthropicKey,
+      models,
+      multi3,
+      documentProcessing,
+      skills,
+      commandPrompts,
+    } = body;
 
     if (typeof openaiKey === 'string' && openaiKey.trim()) {
       state.settings.openaiKey = openaiKey.trim();
@@ -58,6 +77,15 @@ export async function POST(request: NextRequest) {
       };
     }
     mergeSkills(skills);
+    if (commandPrompts !== undefined) {
+      state.settings.commandPrompts = await saveCommandPromptOverrides(commandPrompts);
+    } else {
+      state.settings.commandPrompts = await loadCommandPromptOverrides({
+        force: true,
+        tolerateMissingMigration: true,
+        fallbackToDefaults: true,
+      });
+    }
 
     return NextResponse.json({
       success: true,

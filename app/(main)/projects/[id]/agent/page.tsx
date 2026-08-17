@@ -42,11 +42,6 @@ import {
   type BookCommandName,
 } from '@/lib/book-workflow/commands';
 import {
-  BOOK_FINALIZE_INSTRUCTIONS,
-  BOOK_IMPROVE_INSTRUCTIONS,
-  buildBookAdjustInstructions,
-} from '@/lib/book-workflow/prompts';
-import {
   BOOK_WORKFLOW_STEPS,
   completeBookWorkflowStep,
   createBookWorkflowState,
@@ -525,7 +520,9 @@ export default function ProjectAgentPage() {
 
     const asstId = appendMessage({
       role: 'assistant', command, status: 'running',
-      content: `Aplicando ajuste: "${instructions.slice(0, 80)}${instructions.length > 80 ? '...' : ''}"`,
+      content: command === '/ajustar'
+        ? `Aplicando ajuste: "${instructions.slice(0, 80)}${instructions.length > 80 ? '...' : ''}"`
+        : `Executando ${command} com as instruções salvas em Configurações...`,
       aiProvider: currentAI.provider, aiModel: currentAI.model,
     });
 
@@ -536,6 +533,7 @@ export default function ProjectAgentPage() {
         documentId: selectedDocId, instructions, creativity: 5,
         provider: currentAI.provider, model: currentAI.model, useGrounding: options.useGrounding ?? false,
         editorialProfile: 'book',
+        command,
       }),
     });
     if (!res.ok) {
@@ -653,11 +651,11 @@ export default function ProjectAgentPage() {
       case 2:
         return runBookReview();
       case 3:
-        return runAdjustPipeline(buildBookAdjustInstructions(state.authorInstruction), '/ajustar');
+        return runAdjustPipeline(state.authorInstruction, '/ajustar');
       case 4:
-        return runAdjustPipeline(BOOK_IMPROVE_INSTRUCTIONS, '/aprimorar', { useGrounding: true });
+        return runAdjustPipeline('', '/aprimorar', { useGrounding: true });
       case 5:
-        return runAdjustPipeline(BOOK_FINALIZE_INSTRUCTIONS, '/finalizar');
+        return runAdjustPipeline('', '/finalizar');
     }
   };
 
@@ -1004,7 +1002,7 @@ export default function ProjectAgentPage() {
             appendMessage({ role: 'system', content: 'Descreva o ajuste desejado.', status: 'error' });
             return;
           }
-          await runAdjustPipeline(buildBookAdjustInstructions(args));
+          await runAdjustPipeline(args);
           return;
         }
 
@@ -1014,12 +1012,12 @@ export default function ProjectAgentPage() {
         }
 
         case '/aprimorar': {
-          await runAdjustPipeline(BOOK_IMPROVE_INSTRUCTIONS, '/aprimorar', { useGrounding: true });
+          await runAdjustPipeline('', '/aprimorar', { useGrounding: true });
           return;
         }
 
         case '/finalizar': {
-          await runAdjustPipeline(BOOK_FINALIZE_INSTRUCTIONS, '/finalizar');
+          await runAdjustPipeline('', '/finalizar');
           return;
         }
 

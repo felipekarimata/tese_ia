@@ -129,6 +129,7 @@ export interface Database {
           openai_key: string | null
           google_key: string | null
           xai_key: string | null
+          command_prompts: Json
           models: Json
           prices_usd: Json
           created_at: string
@@ -139,6 +140,7 @@ export interface Database {
           openai_key?: string | null
           google_key?: string | null
           xai_key?: string | null
+          command_prompts?: Json
           models?: Json
           prices_usd?: Json
           created_at?: string
@@ -149,6 +151,7 @@ export interface Database {
           openai_key?: string | null
           google_key?: string | null
           xai_key?: string | null
+          command_prompts?: Json
           models?: Json
           prices_usd?: Json
           created_at?: string

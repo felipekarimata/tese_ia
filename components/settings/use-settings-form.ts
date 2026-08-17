@@ -8,6 +8,7 @@ import { DEFAULT_SKILLS_SETTINGS } from '@/lib/skills/types';
 import { dispatchSettingsUpdated } from './events';
 import type { Multi3Settings } from '@/lib/multi-ai/types';
 import { DEFAULT_MULTI3_SETTINGS, normalizeMulti3Settings } from '@/lib/multi-ai/models';
+import type { CommandPromptKey, CommandPromptOverrides } from '@/lib/book-workflow/prompts';
 
 export type AIProviderKey = 'openai' | 'gemini' | 'grok' | 'anthropic';
 
@@ -25,6 +26,7 @@ export type AppSettings = {
     fullContextMaxChars?: number;
   };
   skills?: SkillsSettings;
+  commandPrompts?: CommandPromptOverrides;
   pricesUSD?: Record<string, { in: number; out: number }>;
 };
 
@@ -194,6 +196,24 @@ export function useSettingsForm(options?: { autoLoad?: boolean; loadModelsOnMoun
     });
   }, []);
 
+  const setCommandPromptOverride = useCallback((key: CommandPromptKey, value: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      commandPrompts: {
+        ...prev?.commandPrompts,
+        [key]: value,
+      },
+    }));
+  }, []);
+
+  const clearCommandPromptOverride = useCallback((key: CommandPromptKey) => {
+    setSettings((prev) => {
+      const commandPrompts = { ...prev?.commandPrompts };
+      delete commandPrompts[key];
+      return { ...prev, commandPrompts };
+    });
+  }, []);
+
   const setPendingKey = useCallback((field: keyof PendingKeyUpdates, value: string) => {
     setPendingKeys((prev) => ({ ...prev, [field]: value }));
   }, []);
@@ -224,6 +244,7 @@ export function useSettingsForm(options?: { autoLoad?: boolean; loadModelsOnMoun
           multi3: settings.multi3 ?? DEFAULT_MULTI3_SETTINGS,
           documentProcessing: settings.documentProcessing,
           skills: settings.skills ?? DEFAULT_SKILLS_SETTINGS,
+          commandPrompts: settings.commandPrompts ?? {},
         };
 
         for (const field of KEY_FIELDS) {
@@ -238,9 +259,8 @@ export function useSettingsForm(options?: { autoLoad?: boolean; loadModelsOnMoun
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        if (!res.ok) throw new Error('Falha ao salvar');
-
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Falha ao salvar');
         if (data.settings) {
           setSettings(data.settings);
           setPendingKeys({});
@@ -279,6 +299,8 @@ export function useSettingsForm(options?: { autoLoad?: boolean; loadModelsOnMoun
     updateMulti3,
     setSkillOverride,
     clearSkillOverride,
+    setCommandPromptOverride,
+    clearCommandPromptOverride,
     toggleModel,
     saveSettings,
   };

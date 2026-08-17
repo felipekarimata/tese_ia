@@ -5,6 +5,14 @@ import path from 'path';
 import os from 'os';
 import { analyzeDocumentForAdjustments } from '@/lib/adjust/processor';
 import { extractDocumentStructure } from '@/lib/improvement/document-analyzer';
+import {
+  resolveBookCommandInstructions,
+  type AdjustableBookCommand,
+} from '@/lib/book-workflow/prompt-settings';
+
+const ADJUSTABLE_BOOK_COMMANDS = new Set<AdjustableBookCommand>([
+  '/ajustar', '/aprimorar', '/finalizar',
+]);
 
 /**
  * POST /api/adjust
@@ -20,19 +28,36 @@ export async function POST(req: NextRequest) {
       provider = 'openai',
       model = 'gpt-5.6-terra',
       useGrounding = false,
-      editorialProfile
+      editorialProfile,
+      command,
     }: {
       documentId?: string;
       sourceDocumentPath?: string;
-      instructions: string;
+      instructions?: string;
       creativity?: number;
       provider?: 'openai' | 'gemini' | 'grok' | 'anthropic';
       model?: string;
       useGrounding?: boolean;
       editorialProfile?: 'book';
+      command?: AdjustableBookCommand;
     } = await req.json();
 
-    if (!instructions) {
+    if (command && !ADJUSTABLE_BOOK_COMMANDS.has(command)) {
+      return NextResponse.json({ error: 'Unsupported command' }, { status: 400 });
+    }
+
+    if (command === '/ajustar' && !instructions?.trim()) {
+      return NextResponse.json(
+        { error: 'Instructions are required' },
+        { status: 400 }
+      );
+    }
+
+    const effectiveInstructions = editorialProfile === 'book' && command
+      ? await resolveBookCommandInstructions(command, instructions || '')
+      : instructions?.trim() || '';
+
+    if (!effectiveInstructions) {
       return NextResponse.json(
         { error: 'Instructions are required' },
         { status: 400 }
@@ -70,7 +95,7 @@ export async function POST(req: NextRequest) {
       .insert({
         document_id: documentId || null,
         status: 'pending',
-        instructions,
+        instructions: effectiveInstructions,
         creativity,
         use_grounding: useGrounding,
         provider,
@@ -91,7 +116,7 @@ export async function POST(req: NextRequest) {
       documentId || 'pipeline',
       doc,
       sourceDocumentPath,
-      instructions,
+      effectiveInstructions,
       creativity,
       provider,
       model,

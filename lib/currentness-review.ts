@@ -11,6 +11,7 @@ import {
 import type { NormReference, NormStatus } from '@/lib/norms-update/types';
 import { BOOK_RESEARCH_DOMAINS } from '@/lib/book-workflow/prompts';
 import { sanitizeEditorialText } from '@/lib/book-workflow/output';
+import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
 
 export type ReviewScope = 'norms' | 'currentness';
 
@@ -224,6 +225,7 @@ export async function reviewDocumentCurrentness(
   const segments = buildReviewSegments(options.paragraphs, options.sections);
   const findings: CurrentnessFinding[] = [];
   const depth = options.depth ?? 'deep';
+  const reviewInstructions = await getEffectiveCommandPrompt('review');
 
   await options.onLog?.(
     `Documento dividido em ${segments.length} bloco(s) para pesquisa aprofundada.`
@@ -240,7 +242,12 @@ export async function reviewDocumentCurrentness(
       model: options.model,
       apiKey: options.apiKey,
       depth,
-      topic: `Revisão de atualidade académica do bloco "${segment.title}". Identifique apenas afirmações verificáveis que estejam desatualizadas, tenham sido contraditas ou devam incorporar evidência mais recente. Pesquise legislação, dados, literatura científica, diretrizes e factos conforme o conteúdo. Faça consultas iterativas e procure fontes primárias.`,
+      topic: `Revisão de atualidade académica do bloco "${segment.title}".
+
+INSTRUÇÃO EDITORIAL CONFIGURADA
+${reviewInstructions.substring(0, 4_000)}
+
+Faça consultas iterativas e procure fontes primárias para as afirmações verificáveis do trecho.`,
       context: segment.text,
       preferredDomains: [
         'doi.org', 'crossref.org', 'openalex.org', 'pubmed.ncbi.nlm.nih.gov',
@@ -264,6 +271,9 @@ export async function reviewDocumentCurrentness(
       .join('\n\n');
 
     const prompt = `Analise o texto original usando exclusivamente a síntese e as fontes realmente devolvidas pela pesquisa web.
+
+INSTRUÇÃO EDITORIAL CONFIGURADA PARA /REVISAR
+${reviewInstructions}
 
 OBJETIVO
 Encontrar afirmações factuais relevantes que precisem de atualização. Não faça revisão de estilo. Não altere uma passagem apenas porque existe uma publicação mais nova.

@@ -16,10 +16,9 @@ import { AIProvider } from '@/lib/ai/types';
 import { SupportedLanguage } from '@/lib/translation/types';
 import { getApiKey } from '@/lib/multi-ai/chapter-helpers';
 import {
-  BOOK_FINALIZE_INSTRUCTIONS,
-  BOOK_IMPROVE_INSTRUCTIONS,
   BOOK_TECHNICAL_GLOSSARY,
 } from '@/lib/book-workflow/prompts';
+import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
 import { stageOverallProgress } from '@/lib/multi-ai/progress';
 import type { Multi3TodosStage } from '@/lib/multi-ai/types';
 import { runTodosCurrentnessReviewStep } from '@/lib/todos/currentness-review-step';
@@ -118,6 +117,10 @@ export async function runTodosPipeline(
   doc: { title: string; file_path: string; project_id?: string | null },
   config: DocumentTodosConfig
 ): Promise<DocumentTodosResult> {
+  const [improveInstructions, finalizeInstructions] = await Promise.all([
+    getEffectiveCommandPrompt('improve'),
+    getEffectiveCommandPrompt('finalize'),
+  ]);
   const tempPaths: string[] = [];
   const stepPaths: string[] = [];
   let finalPath = '';
@@ -241,7 +244,7 @@ export async function runTodosPipeline(
     await runEditorialAdjustStep(
       currentPath,
       improvedPath,
-      BOOK_IMPROVE_INSTRUCTIONS,
+      improveInstructions,
       config,
       (stageProgress, label, currentBatch, totalBatches) =>
         report('improve', stageProgress, label, currentBatch, totalBatches)
@@ -268,7 +271,7 @@ export async function runTodosPipeline(
     await runEditorialAdjustStep(
       currentPath,
       finalizedPath,
-      BOOK_FINALIZE_INSTRUCTIONS,
+      finalizeInstructions,
       config,
       (stageProgress, label, currentBatch, totalBatches) =>
         report('finalize', stageProgress, label, currentBatch, totalBatches)
