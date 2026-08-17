@@ -1,0 +1,14 @@
+.git
+.github
+.next
+node_modules
+.env
+.env.*
+!.env.local.example
+.agents
+.claude
+sessions
+tmp
+coverage
+npm-debug.log*
+HANDOFF_*.txt
