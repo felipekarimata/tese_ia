@@ -66,12 +66,20 @@ test('o prompt de tradução do /todos recebe o mesmo perfil editorial de livro'
   const prompt = buildWholeDocumentPrompt(
     'translate',
     '[[P0000]]Original text[[/P0000]]',
-    { targetLanguage: 'pt', editorialProfile: 'book-ptbr', skillContext: 'todos' }
+    {
+      targetLanguage: 'pt',
+      editorialProfile: 'book-ptbr',
+      skillContext: 'todos',
+      relatedContext: 'CAPÍTULO 1: terminologia tributária consolidada',
+    }
   );
 
   assert.match(prompt, /Traduza o corpo do capítulo para português brasileiro de livro/);
   assert.match(prompt, /Notas de rodapé e notas de fim permanecem 100% no idioma original/);
   assert.match(prompt, /\[\[P0000\]\]Original text\[\[\/P0000\]\]/);
+  assert.match(prompt, /<contexto_livro>/);
+  assert.match(prompt, /terminologia tributária consolidada/);
+  assert.match(prompt, /somente leitura/);
 });
 
 test('o fast path copia o DOCX sem fazer chamada à IA', async () => {

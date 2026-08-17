@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { chatWithAgent, type SimpleMessage } from '@/lib/ai/agent-chat';
 import { AIProvider } from '@/lib/ai/types';
 import { buildDocumentContext } from '@/lib/document-processing/context';
+import {
+  formatBookContextForPrompt,
+  resolveBookContextForChapter,
+  resolveChapterIdForVersion,
+} from '@/lib/books/context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,6 +27,7 @@ type ChatBody = {
   model: string;
   documentTitle?: string;
   documentText: string;
+  chapterId?: string;
   versionId?: string;
   documentId?: string;
   history: SimpleMessage[];
@@ -31,13 +37,16 @@ type ChatBody = {
 function buildSystemPrompt(
   documentTitle: string | undefined,
   documentText: string,
-  contextMode: string
+  contextMode: string,
+  bookContext?: string
 ): string {
   return `Você é um assistente especializado em ajudar o usuário a trabalhar com um documento acadêmico.
 
 ==== DOCUMENTO ATUAL${documentTitle ? `: ${documentTitle}` : ''} (modo: ${contextMode}) ====
 ${documentText}
 ==== FIM DO DOCUMENTO ====
+
+${bookContext || ''}
 
 REGRAS DE RESPOSTA — MUITO IMPORTANTE:
 
@@ -101,7 +110,17 @@ function safeParseJSON(raw: string): { kind: 'chat' | 'edit'; reply: string; edi
 export async function POST(req: NextRequest) {
   try {
     const body: ChatBody = await req.json();
-    const { provider, model, documentText, documentTitle, history, userMessage, versionId, documentId } = body;
+    const {
+      provider,
+      model,
+      documentText,
+      documentTitle,
+      history,
+      userMessage,
+      chapterId: requestedChapterId,
+      versionId,
+      documentId,
+    } = body;
 
     if (!provider || !model) {
       return NextResponse.json({ error: 'Missing provider or model' }, { status: 400 });
@@ -117,11 +136,23 @@ export async function POST(req: NextRequest) {
       documentId,
       query: userMessage.trim(),
     });
+    const chapterId = requestedChapterId || (versionId ? await resolveChapterIdForVersion(versionId) : null);
+    const related = chapterId
+      ? await resolveBookContextForChapter(chapterId, {
+          query: userMessage.trim(),
+          maxChars: 16_000,
+        })
+      : null;
 
-    const systemPrompt = buildSystemPrompt(documentTitle, ctx.text, ctx.modeUsed);
+    const systemPrompt = buildSystemPrompt(
+      documentTitle,
+      ctx.text,
+      ctx.modeUsed,
+      formatBookContextForPrompt(related)
+    );
 
     console.log(
-      `[AGENT-CHAT] provider=${provider} model=${model} mode=${ctx.modeUsed} truncated=${ctx.truncated} (msg: "${userMessage.slice(0, 60)}...")`
+      `[AGENT-CHAT] provider=${provider} model=${model} mode=${ctx.modeUsed} truncated=${ctx.truncated} book=${related?.bookId || 'none'} (msg: "${userMessage.slice(0, 60)}...")`
     );
 
     let raw = '';

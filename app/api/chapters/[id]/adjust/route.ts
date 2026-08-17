@@ -6,6 +6,7 @@ import {
   resolveBookCommandInstructions,
   type AdjustableBookCommand,
 } from '@/lib/book-workflow/prompt-settings';
+import { resolveBookContextVersionIds } from '@/lib/books/context';
 
 type ReferenceInput = {
   type: 'link' | 'file';
@@ -74,6 +75,10 @@ export async function POST(
     const effectiveInstructions = editorialProfile === 'book' && command
       ? await resolveBookCommandInstructions(command, instructions || '')
       : instructions?.trim() || '';
+    const effectiveContextVersionIds = await resolveBookContextVersionIds(
+      chapterId,
+      contextVersionIds
+    );
 
     if (!effectiveInstructions) {
       return NextResponse.json(
@@ -88,7 +93,7 @@ export async function POST(
     console.log(`[CHAPTER-ADJUST-API] Provider: ${provider}, Model: ${model}`);
     console.log(`[CHAPTER-ADJUST-API] Use Grounding: ${useGrounding}`);
     console.log(`[CHAPTER-ADJUST-API] References provided: ${references.length}`);
-    console.log(`[CHAPTER-ADJUST-API] Context chapters: ${contextVersionIds.length}`);
+    console.log(`[CHAPTER-ADJUST-API] Context chapters: ${effectiveContextVersionIds.length}`);
 
     // Cria job
     const jobId = await createOperationJob(chapterId, versionId, 'adjust');
@@ -128,7 +133,7 @@ export async function POST(
       model,
       references,
       useGrounding,
-      contextVersionIds,
+      effectiveContextVersionIds,
       editorialProfile
     ).catch(err => {
       console.error('[CHAPTER-ADJUST-API] Background error:', err);
@@ -140,7 +145,7 @@ export async function POST(
       chapterId,
       versionId,
       referencesCount: references.length,
-      contextChaptersCount: contextVersionIds.length
+      contextChaptersCount: effectiveContextVersionIds.length
     });
 
   } catch (error: any) {

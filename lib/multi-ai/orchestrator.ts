@@ -53,6 +53,11 @@ import {
 } from '@/lib/book-workflow/prompts';
 import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
 import { runTodosCurrentnessReviewStep } from '@/lib/todos/currentness-review-step';
+import {
+  formatBookContextForPrompt,
+  resolveBookContextForChapter,
+  type ResolvedBookContext,
+} from '@/lib/books/context';
 
 const STYLE_MAP: Record<string, 'academic' | 'professional' | 'simplified'> = {
   acadêmico: 'academic', academico: 'academic', academic: 'academic',
@@ -182,6 +187,10 @@ async function runChapterMulti3Pipeline(
   req: Multi3StartRequest & { models: Partial<Record<AIProvider, string>> }
 ): Promise<void> {
   const cancelCheck = multi3CancelCheck(sessionId);
+  const bookContext = await resolveBookContextForChapter(chapterId, {
+    query: `/todos ${req.args || ''} — tradução, revisão, aprimoramento e finalização editorial`,
+    maxChars: 16_000,
+  });
 
   const candidates = await Promise.all(
     req.providers.map(async (provider, branchIndex) => {
@@ -207,7 +216,14 @@ async function runChapterMulti3Pipeline(
       }, 30_000);
 
       try {
-        const result = await runSingleCandidate(chapterId, sessionId, req, provider, branchIndex);
+        const result = await runSingleCandidate(
+          chapterId,
+          sessionId,
+          req,
+          provider,
+          branchIndex,
+          bookContext
+        );
         console.log(`[MULTI3 ${sessionId}] Candidato ${provider}/${req.models?.[provider] || multi3DefaultModel(provider)} → ${result.status}`);
         await patchMulti3Candidate(sessionId, branchIndex, result);
         return result;
@@ -243,7 +259,8 @@ async function runChapterMulti3Pipeline(
     completed,
     judgeProvider,
     judgeModel,
-    req.args || ''
+    req.args || '',
+    bookContext
   );
 
   await updateMulti3Session(sessionId, {
@@ -263,7 +280,8 @@ export async function createChapterJudgeFinal(
   completedCandidates: Multi3Candidate[],
   judgeProvider: AIProvider,
   judgeModel: string,
-  commandArgs = ''
+  commandArgs = '',
+  bookContext: ResolvedBookContext | null = null
 ): Promise<Multi3Candidate> {
   const sourceCandidates = sourceMulti3Candidates(completedCandidates).filter(
     (candidate) => candidate.status === 'completed' && candidate.versionId
@@ -323,6 +341,7 @@ export async function createChapterJudgeFinal(
       judgeModel,
       apiKey: getApiKey(judgeProvider),
       commandArgs,
+      bookContext: bookContext?.text,
       cancelCheck: multi3CancelCheck(sessionId),
       onProgress: async (progress) => {
         await patchMulti3Candidate(sessionId, branchIndex, {
@@ -350,6 +369,9 @@ export async function createChapterJudgeFinal(
         multi3BranchIndex: branchIndex,
         multi3SourceProviders: sourceCandidates.map((candidate) => candidate.provider),
         judgeModel,
+        bookContext: bookContext
+          ? { bookId: bookContext.bookId, siblingCount: bookContext.siblingCount }
+          : null,
       },
       false
     );
@@ -396,7 +418,8 @@ async function runSingleCandidate(
   sessionId: string,
   req: Multi3StartRequest & { models: Partial<Record<AIProvider, string>> },
   provider: AIProvider,
-  branchIndex: number
+  branchIndex: number,
+  bookContext: ResolvedBookContext | null
 ): Promise<Multi3Candidate> {
   const model = req.models?.[provider] || multi3DefaultModel(provider);
   const meta = multi3Meta(sessionId, provider, model, branchIndex, req.command);
@@ -404,17 +427,26 @@ async function runSingleCandidate(
   try {
     switch (req.command) {
       case '/todos':
-        return await runTodosCandidate(chapterId, req.versionId, provider, model, meta, branchIndex, sessionId);
+        return await runTodosCandidate(
+          chapterId,
+          req.versionId,
+          provider,
+          model,
+          meta,
+          branchIndex,
+          sessionId,
+          bookContext
+        );
       case '/perguntar':
-        return await runPerguntarCandidate(chapterId, req.versionId, provider, model, req.args || '', branchIndex, sessionId);
+        return await runPerguntarCandidate(chapterId, req.versionId, provider, model, req.args || '', branchIndex, sessionId, bookContext);
       case '/ajustar':
-        return await runAdjustCandidate(chapterId, req.versionId, provider, model, req.args || '', meta, sessionId);
+        return await runAdjustCandidate(chapterId, req.versionId, provider, model, req.args || '', meta, sessionId, 'adjust', undefined, bookContext);
       case '/adaptar':
-        return await runAdaptCandidate(chapterId, req.versionId, provider, model, req.args || '', meta, sessionId);
+        return await runAdaptCandidate(chapterId, req.versionId, provider, model, req.args || '', meta, sessionId, bookContext);
       case '/traduzir':
-        return await runTranslateCandidate(chapterId, req.versionId, provider, model, req.args || '', meta, sessionId);
+        return await runTranslateCandidate(chapterId, req.versionId, provider, model, req.args || '', meta, sessionId, undefined, bookContext);
       case '/revisar':
-        return await runRevisarCandidate(chapterId, req.versionId, provider, model, meta, sessionId);
+        return await runRevisarCandidate(chapterId, req.versionId, provider, model, meta, sessionId, undefined, bookContext);
       default:
         throw new Error(`Comando não suportado: ${req.command}`);
     }
@@ -445,7 +477,8 @@ async function runTodosCandidate(
   model: string,
   meta: Record<string, unknown>,
   branchIndex: number,
-  sessionId: string
+  sessionId: string,
+  bookContext: ResolvedBookContext | null
 ): Promise<Multi3Candidate> {
   const [improveInstructions, finalizeInstructions] = await Promise.all([
     getEffectiveCommandPrompt('improve'),
@@ -487,7 +520,8 @@ async function runTodosCandidate(
     'pt',
     stepMeta('translate'),
     sessionId,
-    (progress, label, current, total) => markStep('translate', progress, label, current, total)
+    (progress, label, current, total) => markStep('translate', progress, label, current, total),
+    bookContext
   );
   if (!translated.versionId) throw new Error('/todos: tradução não gerou versão');
   versionIds.push(translated.versionId);
@@ -501,7 +535,8 @@ async function runTodosCandidate(
     model,
     stepMeta('review'),
     sessionId,
-    (progress, label, current, total) => markStep('review', progress, label, current, total)
+    (progress, label, current, total) => markStep('review', progress, label, current, total),
+    bookContext
   );
   if (!reviewed.versionId) throw new Error('/todos: revisão não gerou versão');
   versionIds.push(reviewed.versionId);
@@ -517,7 +552,8 @@ async function runTodosCandidate(
     stepMeta('improve'),
     sessionId,
     'improve',
-    (progress, label, current, total) => markStep('improve', progress, label, current, total)
+    (progress, label, current, total) => markStep('improve', progress, label, current, total),
+    bookContext
   );
   if (!improved.versionId) throw new Error('/todos: aprimoramento não gerou versão');
   versionIds.push(improved.versionId);
@@ -533,7 +569,8 @@ async function runTodosCandidate(
     stepMeta('finalize'),
     sessionId,
     'adjust',
-    (progress, label, current, total) => markStep('finalize', progress, label, current, total)
+    (progress, label, current, total) => markStep('finalize', progress, label, current, total),
+    bookContext
   );
   if (!finalized.versionId) throw new Error('/todos: finalização não gerou versão');
   versionIds.push(finalized.versionId);
@@ -560,7 +597,8 @@ async function runPerguntarCandidate(
   model: string,
   question: string,
   branchIndex: number,
-  sessionId: string
+  sessionId: string,
+  bookContext: ResolvedBookContext | null
 ): Promise<Multi3Candidate> {
   multi3CancelCheck(sessionId)();
   const { data: ver } = await supabase
@@ -584,11 +622,12 @@ async function runPerguntarCandidate(
     versionId,
     query: question,
   });
+  const relatedContext = formatBookContextForPrompt(bookContext);
 
   const reply = await chatWithAgent({
     provider,
     model,
-    systemPrompt: `Você responde perguntas sobre o documento "${chapterId}". Responda em português de forma clara e objetiva. Modo de contexto: ${ctx.modeUsed}.`,
+    systemPrompt: `Você responde perguntas sobre o documento "${chapterId}". Responda em português de forma clara e objetiva. Modo de contexto: ${ctx.modeUsed}.\n\n${relatedContext}`,
     history: [],
     userMessage: `Documento:\n${ctx.text}\n\nPergunta: ${question}`,
   });
@@ -612,7 +651,8 @@ async function runAdjustCandidate(
   meta: Record<string, unknown>,
   sessionId: string,
   operation: 'adjust' | 'improve' = 'adjust',
-  onProgress?: CandidateStepProgress
+  onProgress?: CandidateStepProgress,
+  bookContext: ResolvedBookContext | null = null
 ): Promise<Multi3Candidate> {
   const cancelCheck = multi3CancelCheck(sessionId);
   const { data: ver } = await supabase.from('chapter_versions').select('file_path').eq('id', versionId).single();
@@ -620,6 +660,10 @@ async function runAdjustCandidate(
 
   const inputPath = await downloadChapterVersionFile(versionId, ver.file_path, 'adjust');
   const outputPath = path.join(os.tmpdir(), `${randomUUID()}_adjust.docx`);
+  const relatedContext = formatBookContextForPrompt(bookContext);
+  const effectiveInstructions = relatedContext
+    ? `${instructions}\n\n${relatedContext}`
+    : instructions;
 
   try {
     const transform = await runTransformWithMode(inputPath, outputPath, {
@@ -627,13 +671,14 @@ async function runAdjustCandidate(
       provider,
       model,
       adjustInstructions: instructions,
+      relatedContext: bookContext?.text,
     });
 
     if (transform.runBatches) {
       await onProgress?.(8, 'Preparando os lotes editoriais');
       const suggestions = await analyzeDocumentForAdjustments(
         inputPath,
-        instructions,
+        effectiveInstructions,
         5,
         provider,
         model,
@@ -665,7 +710,14 @@ async function runAdjustCandidate(
       versionId,
       outputPath,
       operation,
-      { ...meta, instructions, processingMode: transform.processingMode },
+      {
+        ...meta,
+        instructions,
+        processingMode: transform.processingMode,
+        bookContext: bookContext
+          ? { bookId: bookContext.bookId, siblingCount: bookContext.siblingCount }
+          : null,
+      },
       false
     );
 
@@ -691,7 +743,8 @@ async function runAdaptCandidate(
   model: string,
   styleArg: string,
   meta: Record<string, unknown>,
-  sessionId: string
+  sessionId: string,
+  bookContext: ResolvedBookContext | null = null
 ): Promise<Multi3Candidate> {
   const cancelCheck = multi3CancelCheck(sessionId);
   const branchIndex = meta.multi3BranchIndex as number;
@@ -721,6 +774,7 @@ async function runAdaptCandidate(
       provider,
       model,
       adaptStyle: style,
+      relatedContext: bookContext?.text,
     });
 
     if (transform.runBatches) {
@@ -743,7 +797,9 @@ async function runAdaptCandidate(
           });
         },
         undefined,
-        cancelCheck
+        cancelCheck,
+        'todos',
+        bookContext?.text
       );
       const docxSuggestions: ApplyDocxSuggestion[] = suggestions.map((s: any) => ({
         id: s.id,
@@ -788,7 +844,8 @@ async function runTranslateCandidate(
   langArg: string,
   meta: Record<string, unknown>,
   sessionId: string,
-  onProgress?: CandidateStepProgress
+  onProgress?: CandidateStepProgress,
+  bookContext: ResolvedBookContext | null = null
 ): Promise<Multi3Candidate> {
   multi3CancelCheck(sessionId)();
   const lang = LANGUAGE_MAP[langArg.toLowerCase().split(/\s+/)[0]] || 'pt';
@@ -806,6 +863,7 @@ async function runTranslateCandidate(
       targetLanguage: lang as any,
       skillContext: 'todos',
       editorialProfile: 'book-ptbr',
+      relatedContext: bookContext?.text,
     });
 
     if (transform.wholeResult?.skippedAlreadyTargetLanguage) {
@@ -820,6 +878,7 @@ async function runTranslateCandidate(
         preserveNotes: true,
         editorialProfile: 'book-ptbr',
         glossary: BOOK_TECHNICAL_GLOSSARY,
+        relatedContext: bookContext?.text,
         onProgress: (translationProgress) => {
           void onProgress?.(
             translationProgress.percentage,
@@ -839,7 +898,14 @@ async function runTranslateCandidate(
       versionId,
       outputPath,
       'translate',
-      { ...meta, targetLanguage: lang, processingMode: transform.processingMode },
+      {
+        ...meta,
+        targetLanguage: lang,
+        processingMode: transform.processingMode,
+        bookContext: bookContext
+          ? { bookId: bookContext.bookId, siblingCount: bookContext.siblingCount }
+          : null,
+      },
       false
     );
 
@@ -865,7 +931,8 @@ async function runRevisarCandidate(
   model: string,
   meta: Record<string, unknown>,
   sessionId: string,
-  onProgress?: CandidateStepProgress
+  onProgress?: CandidateStepProgress,
+  bookContext: ResolvedBookContext | null = null
 ): Promise<Multi3Candidate> {
   const cancelCheck = multi3CancelCheck(sessionId);
   cancelCheck();
@@ -882,6 +949,7 @@ async function runRevisarCandidate(
       provider,
       model,
       apiKey: getApiKey(provider),
+      bookContext: bookContext?.text,
       onLog: (message) => {
         console.log(`[MULTI3 ${sessionId}] /todos revisar ${provider}/${model}: ${message}`);
       },
@@ -908,6 +976,9 @@ async function runRevisarCandidate(
         researchDepth: 'deep',
         currentnessFindings: reviewResult.findings.length,
         currentnessApplied: reviewResult.applyResult?.appliedCount ?? 0,
+        bookContext: bookContext
+          ? { bookId: bookContext.bookId, siblingCount: bookContext.siblingCount }
+          : null,
       },
       false
     );

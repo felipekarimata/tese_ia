@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createOperationJob, executeImproveOperation } from '@/lib/thesis/chapter-operations';
 import { AIProvider } from '@/lib/ai/types';
+import { resolveBookContextVersionIds } from '@/lib/books/context';
 import { supabase } from '@/lib/supabase';
 
 type ReferenceInput = {
@@ -44,7 +45,11 @@ export async function POST(
 
     console.log(`[CHAPTER-IMPROVE-API] Starting improve for chapter ${chapterId}, version ${versionId}`);
     console.log(`[CHAPTER-IMPROVE-API] References provided: ${references.length}`);
-    console.log(`[CHAPTER-IMPROVE-API] Context chapters: ${contextVersionIds.length}`);
+    const effectiveContextVersionIds = await resolveBookContextVersionIds(
+      chapterId,
+      contextVersionIds
+    );
+    console.log(`[CHAPTER-IMPROVE-API] Context chapters: ${effectiveContextVersionIds.length}`);
 
     // Cria job
     const jobId = await createOperationJob(chapterId, versionId, 'improve');
@@ -74,7 +79,7 @@ export async function POST(
     }
 
     // Executa em background
-    executeImproveOperation(jobId, chapterId, versionId, provider, model, references, contextVersionIds).catch(err => {
+    executeImproveOperation(jobId, chapterId, versionId, provider, model, references, effectiveContextVersionIds).catch(err => {
       console.error('[CHAPTER-IMPROVE-API] Background error:', err);
     });
 
@@ -84,7 +89,7 @@ export async function POST(
       chapterId,
       versionId,
       referencesCount: references.length,
-      contextChaptersCount: contextVersionIds.length
+      contextChaptersCount: effectiveContextVersionIds.length
     });
 
   } catch (error: any) {

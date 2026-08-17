@@ -3,11 +3,12 @@ import OpenAI from 'openai';
 import { isOpenAIGpt5Family, openaiCompletionTokenLimit } from '@/lib/ai/openai-compat';
 import { AIProvider } from '../ai/types';
 import { state } from '../state';
-import { isGemini429, parseGeminiRetryDelayMs, sleep } from '../ai/gemini-retry';
+import { isGemini429, parseGeminiRetryDelayMs } from '../ai/gemini-retry';
 import { protectElements, restoreElements, validatePlaceholders } from './validation-enhancer';
 import { protectGlossaryTerms, restoreGlossaryTerms, DEFAULT_GLOSSARY, type GlossaryEntry } from './glossary';
 import { sanitizeEditorialText } from '@/lib/book-workflow/output';
 import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
+import { formatBookContextForPrompt } from '@/lib/books/context';
 
 /**
  * Traduz texto usando APENAS OpenAI com retry automático em caso de rate limit
@@ -19,7 +20,8 @@ export async function translateTextDirect(
   provider: AIProvider,
   model: string,
   glossary?: GlossaryEntry[],
-  editorialProfile?: 'book-ptbr'
+  editorialProfile?: 'book-ptbr',
+  relatedContext?: string
 ): Promise<string> {
   let workingText = text;
 
@@ -39,10 +41,13 @@ export async function translateTextDirect(
   const editorialInstructions = editorialProfile === 'book-ptbr'
     ? await getEffectiveCommandPrompt('translate')
     : '';
+  const bookContext = formatBookContextForPrompt(relatedContext || null);
 
   const prompt = `You are a PROFESSIONAL TRANSLATOR. Your ONLY job is to translate text WORD-BY-WORD with ABSOLUTE FIDELITY.
 
 ${editorialInstructions}
+
+${bookContext}
 
 TARGET LANGUAGE: ${targetLanguage.toUpperCase()}
 ${sourceLanguage ? `SOURCE LANGUAGE: ${sourceLanguage.toUpperCase()}` : 'Auto-detect source language'}

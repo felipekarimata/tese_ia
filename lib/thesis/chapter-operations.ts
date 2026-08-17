@@ -14,7 +14,7 @@ import {
 import { isGemini429, parseGeminiRetryDelayMs, sleep } from '@/lib/ai/gemini-retry';
 import { isOpenAIGpt5Family, openaiCompletionTokenLimit } from '@/lib/ai/openai-compat';
 import { SupportedLanguage } from '@/lib/translation/types';
-import { processChapterVersion } from './chapter-processor';
+import { loadChapterVersion, processChapterVersion } from './chapter-processor';
 import { processReferences, formatReferencesForContext, type ReferenceInput } from './reference-processor';
 import type { OperationContextSummary } from './types';
 import { throwIfCancelled, isCancelledError, CANCELLATION_MARKER, clearCancellation } from '@/lib/job-cancellation';
@@ -25,6 +25,17 @@ import { randomUUID } from 'crypto';
 import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
 import { sanitizeEditorialText } from '@/lib/book-workflow/output';
 import { assessPortugueseDocument } from '@/lib/translation/language-gate';
+import { state } from '@/lib/state';
+import {
+  buildBudgetedBookContext,
+  formatBookContextForPrompt,
+  resolveBookContextForChapter,
+  type LoadedBookContextChapter,
+} from '@/lib/books/context';
+import {
+  getChapterBookContextMetadata,
+  isBooksSchemaMissingError,
+} from '@/lib/books/repository';
 
 export type ChapterOperation = 'improve' | 'translate' | 'adjust' | 'adapt' | 'update';
 
@@ -205,7 +216,11 @@ export async function executeImproveOperation(
     }
 
     // Build chapter context if provided
-    const { context: chapterContext, summary: contextSummary } = await buildChapterContextForOperation(contextVersionIds);
+    const { context: chapterContext, summary: contextSummary } = await buildChapterContextForOperation(
+      chapterId,
+      contextVersionIds,
+      'aprimorar conteúdo, fontes, coerência e continuidade sem repetir temas já tratados'
+    );
 
     // Combine all contexts
     const combinedContext = referencesContext + chapterContext;
@@ -386,6 +401,12 @@ export async function executeTranslateOperation(
     const skipTranslation = targetLanguage === 'pt'
       && editorialProfile === 'book-ptbr'
       && languageAssessment.shouldSkipTranslation;
+    const bookContext = skipTranslation
+      ? null
+      : await resolveBookContextForChapter(chapterId, {
+          query: `Tradução para ${targetLanguage}; manter terminologia e continuidade editorial`,
+          maxChars: 12_000,
+        });
 
     if (skipTranslation) {
       console.log('[CHAPTER-TRANSLATE] Document already in pt-BR; skipping AI translation.');
@@ -420,7 +441,8 @@ export async function executeTranslateOperation(
           provider as 'openai' | 'gemini' | 'grok' | 'anthropic',
           model,
           apiKey,
-          editorialProfile
+          editorialProfile,
+          bookContext?.text
         );
 
         allSuggestions.push(...suggestions);
@@ -446,6 +468,9 @@ export async function executeTranslateOperation(
         sourceLanguage,
         suggestionsCount: allSuggestions.length,
         translationSkipped: skipTranslation,
+        bookContext: bookContext
+          ? { bookId: bookContext.bookId, siblingCount: bookContext.siblingCount }
+          : null,
       }
     );
 
@@ -468,6 +493,9 @@ export async function executeTranslateOperation(
           targetLanguage,
           sourceLanguage,
           translationSkipped: skipTranslation,
+          bookContext: bookContext
+            ? { bookId: bookContext.bookId, siblingCount: bookContext.siblingCount }
+            : null,
           suggestions: allSuggestions.map((s: any) => ({
             id: s.id,
             type: 'translation',
@@ -624,7 +652,11 @@ export async function executeAdjustOperation(
     }
 
     // Build chapter context if provided
-    const { context: chapterContext, summary: contextSummary } = await buildChapterContextForOperation(contextVersionIds);
+    const { context: chapterContext, summary: contextSummary } = await buildChapterContextForOperation(
+      chapterId,
+      contextVersionIds,
+      instructions
+    );
 
     // Combine all contexts and add to instructions
     const combinedContext = referencesContext + chapterContext;
@@ -784,7 +816,11 @@ export async function executeAdaptOperation(
     }
 
     // Build chapter context if provided
-    const { context: chapterContext, summary: contextSummary } = await buildChapterContextForOperation(contextVersionIds);
+    const { context: chapterContext, summary: contextSummary } = await buildChapterContextForOperation(
+      chapterId,
+      contextVersionIds,
+      `${style} ${targetAudience || ''}`
+    );
 
     await updateOperationJob(jobId, { progress: 40 });
 
@@ -804,7 +840,9 @@ export async function executeAdaptOperation(
       apiKey,
       undefined, // onProgress
       undefined, // onSavePartial
-      () => throwIfCancelled(jobId)
+      () => throwIfCancelled(jobId),
+      'direct',
+      chapterContext
     );
 
     console.log(`[CHAPTER-ADAPT] Generated ${suggestions.length} suggestions`);
@@ -951,7 +989,11 @@ export async function executeUpdateOperation(
     }
 
     // Build chapter context if provided
-    const { context: chapterContext, summary: contextSummary } = await buildChapterContextForOperation(contextVersionIds);
+    const { context: chapterContext, summary: contextSummary } = await buildChapterContextForOperation(
+      chapterId,
+      contextVersionIds,
+      'atualização factual, normativa e bibliográfica do capítulo atual'
+    );
 
     // Combine all contexts
     const combinedContext = referencesContext + chapterContext;
@@ -1237,7 +1279,8 @@ async function generateTranslationSuggestions(
   provider: 'openai' | 'gemini' | 'grok' | 'anthropic',
   model: string,
   apiKey: string,
-  editorialProfile?: 'book-ptbr'
+  editorialProfile?: 'book-ptbr',
+  relatedContext?: string
 ): Promise<any[]> {
   const editorialInstructions = editorialProfile === 'book-ptbr'
     ? await getEffectiveCommandPrompt('translate')
@@ -1245,6 +1288,8 @@ async function generateTranslationSuggestions(
   const prompt = `You are a professional translator. Translate the following text ${sourceLanguage ? `from ${sourceLanguage}` : ''} to ${targetLanguage}.
 
 ${editorialInstructions}
+
+${formatBookContextForPrompt(relatedContext || null)}
 
 For each paragraph, provide:
 - originalText: the exact original text (unchanged)
@@ -1372,7 +1417,9 @@ function getAPIKey(provider: AIProvider): string {
  * Loads chapter chunks and formats them as readable context
  */
 async function buildChapterContextForOperation(
-  contextVersionIds: string[]
+  currentChapterId: string,
+  contextVersionIds: string[],
+  query = ''
 ): Promise<{ context: string; summary: OperationContextSummary[] }> {
   if (!contextVersionIds || contextVersionIds.length === 0) {
     return { context: '', summary: [] };
@@ -1380,7 +1427,28 @@ async function buildChapterContextForOperation(
 
   console.log(`[CHAPTER-CONTEXT] Building context from ${contextVersionIds.length} chapter versions`);
 
-  // Fetch version metadata and chunks
+  const uniqueVersionIds = [...new Set(contextVersionIds.filter(Boolean))];
+
+  const processedVersions = new Map<string, Awaited<ReturnType<typeof loadChapterVersion>>>();
+  for (let start = 0; start < uniqueVersionIds.length; start += 3) {
+    const batch = uniqueVersionIds.slice(start, start + 3);
+    const processed = await Promise.allSettled(
+      batch.map(async (versionId) => {
+        const version = await loadChapterVersion(versionId, state);
+        processedVersions.set(versionId, version);
+      })
+    );
+    processed.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.warn(
+          `[CHAPTER-CONTEXT] Não foi possível indexar a versão ${batch[index]}:`,
+          result.reason
+        );
+      }
+    });
+  }
+
+  // Fetch version and chapter metadata after ensuring chunks exist.
   const { data: versionsData, error } = await supabase
     .from('chapter_versions')
     .select(`
@@ -1392,52 +1460,75 @@ async function buildChapterContextForOperation(
         chapter_order
       )
     `)
-    .in('id', contextVersionIds);
+    .in('id', uniqueVersionIds);
 
   if (error || !versionsData) {
     console.error('[CHAPTER-CONTEXT] Error fetching versions:', error);
     return { context: '', summary: [] };
   }
 
+  let bookTitle = 'Contexto relacionado';
+  const bookOrderByChapter = new Map<string, number>();
+  try {
+    const metadata = await getChapterBookContextMetadata(currentChapterId);
+    if (metadata) {
+      bookTitle = metadata.bookTitle;
+      for (const chapter of metadata.chapters) {
+        bookOrderByChapter.set(chapter.chapterId, chapter.chapterOrder);
+      }
+    }
+  } catch (metadataError) {
+    if (!isBooksSchemaMissingError(metadataError)) {
+      console.warn('[CHAPTER-CONTEXT] Não foi possível carregar a ordem do livro:', metadataError);
+    }
+  }
+
+  const orderedVersions: any[] = [...(versionsData as any[])].sort((left: any, right: any) => {
+    const leftChapter = Array.isArray(left.chapters) ? left.chapters[0] : left.chapters;
+    const rightChapter = Array.isArray(right.chapters) ? right.chapters[0] : right.chapters;
+    const leftOrder = bookOrderByChapter.get(String(leftChapter?.id)) ?? Number(leftChapter?.chapter_order || 10_000);
+    const rightOrder = bookOrderByChapter.get(String(rightChapter?.id)) ?? Number(rightChapter?.chapter_order || 10_000);
+    return leftOrder - rightOrder;
+  });
+
   // Build summary for metadata
-  const summary: OperationContextSummary[] = versionsData.map((v: any) => {
+  const summary: OperationContextSummary[] = orderedVersions.map((v: any) => {
     const chapter = Array.isArray(v.chapters) ? v.chapters[0] : v.chapters;
     return {
       chapter_id: chapter.id,
       chapter_title: chapter.title,
-      chapter_order: chapter.chapter_order,
+      chapter_order: bookOrderByChapter.get(String(chapter.id)) ?? chapter.chapter_order,
       version_id: v.id,
       version_number: v.version_number
     };
   });
 
-  // Fetch chunks for each version
-  const contextParts: string[] = [];
-
-  for (const versionData of versionsData) {
+  const loadedChapters: LoadedBookContextChapter[] = [];
+  for (const versionData of orderedVersions) {
     const chapter = Array.isArray(versionData.chapters) ? versionData.chapters[0] : versionData.chapters;
-
-    // Fetch chunks for this version
-    const { data: chunks, error: chunksError } = await supabase
-      .from('chapter_chunks')
-      .select('text, page_from, page_to')
-      .eq('chapter_version_id', versionData.id)
-      .order('chunk_index');
-
-    if (chunksError || !chunks || chunks.length === 0) {
-      console.warn(`[CHAPTER-CONTEXT] No chunks found for version ${versionData.id}`);
-      continue;
-    }
-
-    // Format chunks into readable text
-    const chunkTexts = chunks.map((c: any) => c.text).join('\n\n');
-    const contextHeader = `\n\n=== CAPÍTULO ${chapter.chapter_order}: ${chapter.title} (Versão ${versionData.version_number}) ===\n\n`;
-    contextParts.push(contextHeader + chunkTexts);
+    const processedVersion = processedVersions.get(String(versionData.id));
+    loadedChapters.push({
+      chapterId: String(chapter.id),
+      chapterTitle: String(chapter.title),
+      chapterOrder: bookOrderByChapter.get(String(chapter.id)) ?? Number(chapter.chapter_order || 1),
+      currentVersionId: String(versionData.id),
+      chunks: (processedVersion?.chunks || []).map((chunk) => ({
+        index: chunk.chunk_index,
+        text: chunk.text,
+        pageFrom: chunk.page_from,
+        pageTo: chunk.page_to,
+      })),
+    });
   }
 
-  const fullContext = contextParts.length > 0
-    ? `\n\nCONTEXTO DE CAPÍTULOS RELACIONADOS:\n${contextParts.join('\n\n')}`
-    : '';
+  const built = buildBudgetedBookContext({
+    bookTitle,
+    currentChapterId,
+    chapters: loadedChapters,
+    query,
+    maxChars: 24_000,
+  });
+  const fullContext = formatBookContextForPrompt(built.text);
 
   console.log(`[CHAPTER-CONTEXT] Built context: ${fullContext.length} characters from ${summary.length} chapters`);
 

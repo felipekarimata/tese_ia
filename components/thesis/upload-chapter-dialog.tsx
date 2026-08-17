@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -13,6 +13,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Upload, FileText, X } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 type UploadChapterDialogProps = {
   thesisId: string;
@@ -33,6 +40,21 @@ export function UploadChapterDialog({
   const [title, setTitle] = useState('');
   const [chapterOrder, setChapterOrder] = useState(suggestedOrder?.toString() || '');
   const [uploading, setUploading] = useState(false);
+  const [books, setBooks] = useState<Array<{ id: string; title: string; chapterCount: number }>>([]);
+  const [selectedBookId, setSelectedBookId] = useState('none');
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void fetch('/api/books', { cache: 'no-store' })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Falha ao carregar livros');
+        if (!cancelled) setBooks(data.books || []);
+      })
+      .catch(() => { if (!cancelled) setBooks([]); });
+    return () => { cancelled = true; };
+  }, [open]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -77,12 +99,29 @@ export function UploadChapterDialog({
 
       console.log('[UPLOAD-CHAPTER] Chapter created:', data);
 
+      let associationWarning = '';
+      if (selectedBookId !== 'none') {
+        const associationResponse = await fetch(`/api/books/${selectedBookId}/chapters`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chapterId: data.chapter.id }),
+        });
+        if (!associationResponse.ok) {
+          const associationData = await associationResponse.json().catch(() => ({}));
+          associationWarning = associationData.error || 'Não foi possível adicionar ao livro';
+        }
+      }
+
       toast.success(`Capítulo "${title}" adicionado com sucesso!`);
+      if (associationWarning) {
+        toast.warning(`O capítulo foi preservado, mas ficou sem livro: ${associationWarning}`);
+      }
 
       // Reset form
       setFile(null);
       setTitle('');
       setChapterOrder('');
+      setSelectedBookId('none');
       onOpenChange(false);
 
       // Notify parent
@@ -102,13 +141,14 @@ export function UploadChapterDialog({
       setFile(null);
       setTitle('');
       setChapterOrder('');
+      setSelectedBookId('none');
       onOpenChange(false);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Adicionar Capítulo</DialogTitle>
           <DialogDescription>
@@ -162,6 +202,26 @@ export function UploadChapterDialog({
                 </div>
               )}
             </div>
+          </div>
+
+          <div>
+            <Label htmlFor="chapter-book">Livro <span className="text-xs text-muted-foreground">(opcional)</span></Label>
+            <Select value={selectedBookId} onValueChange={setSelectedBookId}>
+              <SelectTrigger id="chapter-book" className="mt-2">
+                <SelectValue placeholder="Escolha um livro" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Sem livro por enquanto</SelectItem>
+                {books.map((book) => (
+                  <SelectItem key={book.id} value={book.id}>
+                    {book.title} · {book.chapterCount} capítulo{book.chapterCount === 1 ? '' : 's'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              O capítulo pode ser associado ou transferido depois pela área Livros.
+            </p>
           </div>
 
           {/* Title Input */}

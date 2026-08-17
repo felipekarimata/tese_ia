@@ -52,6 +52,8 @@ export type TranslationOptions = {
   glossary?: Array<{ term: string; caseSensitive: boolean; wholeWord: boolean }>; // Termos que não devem ser traduzidos
   preserveNotes?: boolean; // Mantém footnotes/endnotes fora das chamadas de IA
   editorialProfile?: 'book-ptbr';
+  /** Read-only excerpts from sibling chapters, used only for terminology and continuity. */
+  relatedContext?: string;
   onProgress?: (progress: TranslationProgress) => void;
   onLog?: (message: string) => void; // Callback para logs em tempo real
 };

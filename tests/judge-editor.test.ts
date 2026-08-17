@@ -111,6 +111,7 @@ test('cria um DOCX final a partir do conteúdo integral de todos os candidatos',
     judgeProvider: 'gemini',
     judgeModel: 'judge-test',
     apiKey: 'test-key',
+    bookContext: 'CAPÍTULO 1: conceitos já explicados anteriormente.',
   }, {
     extractDocument: async (filePath: string) => documents[filePath],
     generateJson: async (params: any) => {
@@ -135,6 +136,8 @@ test('cria um DOCX final a partir do conteúdo integral de todos os candidatos',
   assert.match(generatedPrompt, /Versão Claude/);
   assert.match(generatedPrompt, /já está bem redigido em português brasileiro/);
   assert.match(generatedPrompt, /Não retraduza palavras/);
+  assert.match(generatedPrompt, /<contexto_livro>/);
+  assert.match(generatedPrompt, /conceitos já explicados anteriormente/);
   assert.equal(appliedInput, 'gemini.docx');
   assert.equal(appliedSuggestions.length, 2);
   assert.equal(generateCalls, 2);

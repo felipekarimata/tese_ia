@@ -12,6 +12,7 @@ import type { NormReference, NormStatus } from '@/lib/norms-update/types';
 import { BOOK_RESEARCH_DOMAINS } from '@/lib/book-workflow/prompts';
 import { sanitizeEditorialText } from '@/lib/book-workflow/output';
 import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
+import { formatBookContextForPrompt } from '@/lib/books/context';
 
 export type ReviewScope = 'norms' | 'currentness';
 
@@ -55,13 +56,15 @@ export type ReviewSegment = {
   paragraphs: Array<{ text: string; index: number }>;
 };
 
-type ReviewDocumentOptions = {
+export type ReviewDocumentOptions = {
   paragraphs: ReviewParagraph[];
   sections: ReviewSection[];
   provider: AIProvider;
   model: string;
   apiKey: string;
   depth?: ResearchDepth;
+  /** Other chapters in the same book; continuity context, never research evidence. */
+  bookContext?: string;
   onProgress?: (current: number, total: number) => Promise<void> | void;
   onLog?: (message: string) => Promise<void> | void;
 };
@@ -226,6 +229,7 @@ export async function reviewDocumentCurrentness(
   const findings: CurrentnessFinding[] = [];
   const depth = options.depth ?? 'deep';
   const reviewInstructions = await getEffectiveCommandPrompt('review');
+  const bookContext = formatBookContextForPrompt(options.bookContext || null);
 
   await options.onLog?.(
     `Documento dividido em ${segments.length} bloco(s) para pesquisa aprofundada.`
@@ -291,6 +295,8 @@ CRITÉRIOS
 - suggestedText deve ser a versão integral do mesmo parágrafo, já atualizada; não devolva somente a frase alterada.
 - Cada conclusão deve citar apenas IDs da lista abaixo.
 - Retorne no máximo 6 achados de maior importância neste bloco.
+
+${bookContext ? `${bookContext}\n\nIMPORTANTE: o contexto do livro serve apenas para coerência, terminologia e prevenção de repetição. Ele não é fonte nem evidência factual.` : ''}
 
 SÍNTESE DA PESQUISA
 ${research.text.substring(0, 12_000)}

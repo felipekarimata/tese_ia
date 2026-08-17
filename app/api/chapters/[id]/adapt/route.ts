@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createOperationJob, executeAdaptOperation } from '@/lib/thesis/chapter-operations';
 import { AIProvider } from '@/lib/ai/types';
+import { resolveBookContextVersionIds } from '@/lib/books/context';
 import { supabase } from '@/lib/supabase';
 
 type ReferenceInput = {
@@ -56,7 +57,11 @@ export async function POST(
     console.log(`[CHAPTER-ADAPT-API] Starting adapt for chapter ${chapterId}, version ${versionId}`);
     console.log(`[CHAPTER-ADAPT-API] Style: ${style}, Target audience: ${targetAudience || 'general'}`);
     console.log(`[CHAPTER-ADAPT-API] References provided: ${references.length}`);
-    console.log(`[CHAPTER-ADAPT-API] Context chapters: ${contextVersionIds.length}`);
+    const effectiveContextVersionIds = await resolveBookContextVersionIds(
+      chapterId,
+      contextVersionIds
+    );
+    console.log(`[CHAPTER-ADAPT-API] Context chapters: ${effectiveContextVersionIds.length}`);
 
     // Cria job
     const jobId = await createOperationJob(chapterId, versionId, 'adapt');
@@ -95,7 +100,7 @@ export async function POST(
       provider,
       model,
       references,
-      contextVersionIds
+      effectiveContextVersionIds
     ).catch(err => {
       console.error('[CHAPTER-ADAPT-API] Background error:', err);
     });
@@ -108,7 +113,7 @@ export async function POST(
       style,
       targetAudience,
       referencesCount: references.length,
-      contextChaptersCount: contextVersionIds.length
+      contextChaptersCount: effectiveContextVersionIds.length
     });
 
   } catch (error: any) {

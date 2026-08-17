@@ -13,6 +13,7 @@ import type { SkillContext, SkillKey } from '@/lib/skills/types';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { randomUUID } from 'crypto';
+import { formatBookContextForPrompt } from '@/lib/books/context';
 
 /**
  * Analyze document and generate adaptations based on style and audience
@@ -30,7 +31,8 @@ export async function analyzeDocumentForAdaptation(
    * Called between sections AND between batches inside each section so a
    * cancel request stops the next paid AI call. */
   cancelCheck?: () => void,
-  skillContext: SkillContext = 'direct'
+  skillContext: SkillContext = 'direct',
+  relatedContext?: string
 ): Promise<AdaptationSuggestion[]> {
   console.log('[ADAPT] Extracting document structure...');
 
@@ -85,7 +87,8 @@ export async function analyzeDocumentForAdaptation(
             await onSavePartial(allSuggestions, i + 1, structure.sections.length);
           }
         } : undefined,
-        skillContext
+        skillContext,
+        relatedContext
       );
       const batchDuration = ((Date.now() - batchStartTime) / 1000).toFixed(1);
 
@@ -148,10 +151,18 @@ async function analyzeBatch(
   model: string,
   apiKey: string,
   onSavePartial?: () => Promise<void>,
-  skillContext: SkillContext = 'direct'
+  skillContext: SkillContext = 'direct',
+  relatedContext?: string
 ): Promise<AdaptationSuggestion[]> {
 
-  const prompt = buildPrompt(paragraphs, sectionTitle, style, targetAudience, skillContext);
+  const prompt = buildPrompt(
+    paragraphs,
+    sectionTitle,
+    style,
+    targetAudience,
+    skillContext,
+    relatedContext
+  );
   const maxRetries = 3;
   const retryDelayMs = 60 * 1000; // 1 minute
 
@@ -284,7 +295,8 @@ function buildPrompt(
   sectionTitle: string,
   style: 'academic' | 'professional' | 'simplified' | 'custom',
   targetAudience: string | undefined,
-  skillContext: SkillContext = 'direct'
+  skillContext: SkillContext = 'direct',
+  relatedContext?: string
 ): string {
   const paragraphsText = paragraphs.map((p, i) => `[${i + 1}] ${p.text}`).join('\n\n');
   const skillKey: SkillKey =
@@ -292,7 +304,7 @@ function buildPrompt(
       ? 'adapt:simplified'
       : (`adapt:${style}` as SkillKey);
 
-  return resolveSkillPrompt(
+  const prompt = resolveSkillPrompt(
     skillKey,
     {
       section: sectionTitle,
@@ -301,4 +313,6 @@ function buildPrompt(
     },
     skillContext
   );
+  const bookContext = formatBookContextForPrompt(relatedContext || null);
+  return bookContext ? `${prompt}\n\n${bookContext}` : prompt;
 }

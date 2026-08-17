@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,9 +10,22 @@ import { Upload, FileText, X, BookOpen, Folder, ArrowLeft, Check } from 'lucide-
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 type ImportStep = 'upload' | 'choose-type' | 'details';
 type DocumentType = 'thesis' | 'project';
+
+type BookOption = {
+  id: string;
+  title: string;
+  chapterCount: number;
+};
 
 type ImportDocumentDialogProps = {
   open: boolean;
@@ -29,6 +42,30 @@ export function ImportDocumentDialog({ open, onOpenChange, onCreated }: ImportDo
   const [description, setDescription] = useState('');
   const [creating, setCreating] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [books, setBooks] = useState<BookOption[]>([]);
+  const [selectedBookId, setSelectedBookId] = useState('none');
+  const [booksUnavailable, setBooksUnavailable] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void fetch('/api/books', { cache: 'no-store' })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Falha ao carregar livros');
+        if (!cancelled) {
+          setBooks(data.books || []);
+          setBooksUnavailable(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBooks([]);
+          setBooksUnavailable(true);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [open]);
 
   const reset = () => {
     setStep('upload');
@@ -36,6 +73,7 @@ export function ImportDocumentDialog({ open, onOpenChange, onCreated }: ImportDo
     setDocType(null);
     setTitle('');
     setDescription('');
+    setSelectedBookId('none');
     setCreating(false);
     setDragOver(false);
   };
@@ -79,17 +117,34 @@ export function ImportDocumentDialog({ open, onOpenChange, onCreated }: ImportDo
         const formData = new FormData();
         formData.append('file', file);
         formData.append('thesisId', thesisData.thesis.id);
-        formData.append('title', 'Capítulo 1');
+        formData.append('title', title.trim());
         formData.append('chapterOrder', '1');
 
         const chapterRes = await fetch('/api/chapters', { method: 'POST', body: formData });
         if (!chapterRes.ok) throw new Error('Falha ao fazer upload do capítulo');
+        const chapterData = await chapterRes.json();
 
-        toast.success(`Tese "${title}" criada com sucesso!`);
+        let associationWarning = '';
+        if (selectedBookId !== 'none') {
+          const associationResponse = await fetch(`/api/books/${selectedBookId}/chapters`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chapterId: chapterData.chapter.id }),
+          });
+          if (!associationResponse.ok) {
+            const associationData = await associationResponse.json().catch(() => ({}));
+            associationWarning = associationData.error || 'Não foi possível adicionar o capítulo ao livro';
+          }
+        }
+
+        toast.success(`Capítulo "${title}" importado com sucesso!`);
+        if (associationWarning) {
+          toast.warning(`O upload foi preservado, mas ficou sem livro: ${associationWarning}`);
+        }
         reset();
         onOpenChange(false);
         onCreated?.();
-        router.push(`/theses/${thesisData.thesis.id}`);
+        router.push(`/chapters/${chapterData.chapter.id}/agent`);
       } else {
         const projectRes = await fetch('/api/projects', {
           method: 'POST',
@@ -137,7 +192,7 @@ export function ImportDocumentDialog({ open, onOpenChange, onCreated }: ImportDo
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[560px] bg-gradient-to-br from-gray-900 via-gray-900 to-black border-white/10 p-0 overflow-hidden">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] overflow-hidden bg-gradient-to-br from-gray-900 via-gray-900 to-black border-white/10 p-0 sm:max-w-[560px]">
         {/* Header */}
         <div className="px-6 pt-6 pb-4 border-b border-white/5">
           <DialogHeader>
@@ -154,7 +209,7 @@ export function ImportDocumentDialog({ open, onOpenChange, onCreated }: ImportDo
               <span>
                 {step === 'upload' && 'Importar Documento'}
                 {step === 'choose-type' && 'Como organizar?'}
-                {step === 'details' && (docType === 'thesis' ? 'Detalhes da Tese' : 'Detalhes do Projeto')}
+                {step === 'details' && (docType === 'thesis' ? 'Detalhes do Capítulo' : 'Detalhes do Projeto')}
               </span>
             </DialogTitle>
           </DialogHeader>
@@ -174,7 +229,7 @@ export function ImportDocumentDialog({ open, onOpenChange, onCreated }: ImportDo
         </div>
 
         {/* Body */}
-        <div className="px-6 py-5">
+        <div className="min-h-0 overflow-y-auto px-6 py-5">
           {/* Step 1: Upload */}
           {step === 'upload' && (
             <div className="space-y-3">
@@ -267,9 +322,9 @@ export function ImportDocumentDialog({ open, onOpenChange, onCreated }: ImportDo
                     <BookOpen className="h-5 w-5 text-red-400" />
                   </div>
                   <div className="space-y-1 min-w-0">
-                    <p className="text-sm font-semibold text-white">Tese</p>
+                    <p className="text-sm font-semibold text-white">Capítulo</p>
                     <p className="text-xs text-gray-400 leading-relaxed break-words">
-                      Capítulos separados — cada um com seu próprio histórico de versões
+                      Upload independente — pode entrar em um livro agora ou depois
                     </p>
                   </div>
                 </button>
@@ -302,7 +357,7 @@ export function ImportDocumentDialog({ open, onOpenChange, onCreated }: ImportDo
                 ) : (
                   <Folder className="h-3.5 w-3.5 text-red-400" />
                 )}
-                <span className="text-red-400">{docType === 'thesis' ? 'Tese por capítulos' : 'Projeto completo'}</span>
+                <span className="text-red-400">{docType === 'thesis' ? 'Capítulo independente' : 'Projeto completo'}</span>
                 <span>·</span>
                 <FileText className="h-3.5 w-3.5" />
                 <span className="truncate max-w-[200px]">{file?.name}</span>
@@ -310,19 +365,47 @@ export function ImportDocumentDialog({ open, onOpenChange, onCreated }: ImportDo
 
               <div className="space-y-2">
                 <Label htmlFor="import-title" className="text-gray-300 text-sm">
-                  {docType === 'thesis' ? 'Título da Tese' : 'Nome do Projeto'} *
+                  {docType === 'thesis' ? 'Título do Capítulo' : 'Nome do Projeto'} *
                 </Label>
                 <Input
                   id="import-title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder={docType === 'thesis' ? 'Ex: Minha Tese de Mestrado' : 'Ex: Tese de Doutorado 2024'}
+                  placeholder={docType === 'thesis' ? 'Ex: Capítulo 3 — Centros Offshore' : 'Ex: Tese de Doutorado 2024'}
                   disabled={creating}
                   autoFocus
                   onKeyDown={(e) => { if (e.key === 'Enter' && title.trim()) handleCreate(); }}
                   className="bg-white/5 border-white/10 text-white placeholder:text-gray-600 focus-visible:ring-red-500/40"
                 />
               </div>
+
+              {docType === 'thesis' && (
+                <div className="space-y-2">
+                  <Label htmlFor="import-book" className="text-gray-300 text-sm">
+                    Livro <span className="text-gray-600 text-xs">(opcional)</span>
+                  </Label>
+                  <Select value={selectedBookId} onValueChange={setSelectedBookId}>
+                    <SelectTrigger id="import-book" className="bg-white/5 border-white/10 text-white focus:ring-red-500/40">
+                      <SelectValue placeholder="Escolha um livro" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sem livro por enquanto</SelectItem>
+                      {books.map((book) => (
+                        <SelectItem key={book.id} value={book.id}>
+                          {book.title} · {book.chapterCount} capítulo{book.chapterCount === 1 ? '' : 's'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500">
+                    {booksUnavailable
+                      ? 'Os livros não puderam ser carregados agora. O capítulo será importado normalmente e poderá ser associado depois.'
+                      : books.length === 0
+                        ? 'Você ainda não criou livros. O capítulo poderá ser associado depois em Livros.'
+                        : 'Os demais capítulos do livro serão usados automaticamente como contexto.'}
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="import-description" className="text-gray-300 text-sm">
@@ -362,7 +445,7 @@ export function ImportDocumentDialog({ open, onOpenChange, onCreated }: ImportDo
                   ) : (
                     <span className="flex items-center gap-2">
                       <Check className="h-4 w-4" />
-                      Criar {docType === 'thesis' ? 'Tese' : 'Projeto'}
+                      Importar {docType === 'thesis' ? 'Capítulo' : 'Projeto'}
                     </span>
                   )}
                 </Button>

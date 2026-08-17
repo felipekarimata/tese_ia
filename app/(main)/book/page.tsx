@@ -1,5 +1,5 @@
-import { BookAssemblyWorkspace } from '@/components/thesis/book-assembly-workspace';
+import { BookLibraryWorkspace } from '@/components/books/book-library-workspace';
 
 export default function BookPage() {
-  return <BookAssemblyWorkspace />;
+  return <BookLibraryWorkspace />;
 }

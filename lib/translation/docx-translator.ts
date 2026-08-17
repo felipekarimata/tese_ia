@@ -520,7 +520,8 @@ async function translateBatch(
             provider,
             model,
             options.glossary,
-            options.editorialProfile
+            options.editorialProfile,
+            options.relatedContext
           );
           finalTranslation += partTranslation + ' ';
         }
@@ -535,7 +536,8 @@ async function translateBatch(
           provider,
           model,
           options.glossary,
-          options.editorialProfile
+          options.editorialProfile,
+          options.relatedContext
         );
       }
 
@@ -625,7 +627,8 @@ async function translateBatch(
               provider,
               model,
               options.glossary,
-              options.editorialProfile
+              options.editorialProfile,
+              options.relatedContext
             );
             finalTranslation += partTranslation + ' ';
           }
@@ -653,7 +656,8 @@ async function translateBatch(
               provider,
               model,
               options.glossary,
-              options.editorialProfile
+              options.editorialProfile,
+              options.relatedContext
             );
 
             const retry2Validation = validateTranslation(text, finalTranslation, true);
@@ -684,7 +688,8 @@ async function translateBatch(
                 provider,
                 model,
                 options.glossary,
-                options.editorialProfile
+                options.editorialProfile,
+                options.relatedContext
               );
               finalTranslation += partTranslation + ' ';
             } catch (error: any) {
@@ -737,7 +742,8 @@ async function translateBatch(
             provider,
             model,
             options.glossary,
-            options.editorialProfile
+            options.editorialProfile,
+            options.relatedContext
           );
 
           if (emergencyTranslation && emergencyTranslation.trim().length > 0) {

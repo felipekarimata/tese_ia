@@ -4,6 +4,7 @@ import { AIProvider } from '@/lib/ai/types';
 import { supabase } from '@/lib/supabase';
 import { DEFAULT_MODELS } from '@/lib/ai/model-registry';
 import type { ResearchDepth } from '@/lib/ai/research';
+import { resolveBookContextVersionIds } from '@/lib/books/context';
 
 type ReferenceInput = {
   type: 'link' | 'file';
@@ -49,7 +50,11 @@ export async function POST(
     // References are optional for update, but typically expected
     console.log(`[CHAPTER-UPDATE-API] Starting update for chapter ${chapterId}, version ${versionId}`);
     console.log(`[CHAPTER-UPDATE-API] References provided: ${references.length}`);
-    console.log(`[CHAPTER-UPDATE-API] Context chapters: ${contextVersionIds.length}`);
+    const effectiveContextVersionIds = await resolveBookContextVersionIds(
+      chapterId,
+      contextVersionIds
+    );
+    console.log(`[CHAPTER-UPDATE-API] Context chapters: ${effectiveContextVersionIds.length}`);
 
     // Cria job
     const jobId = await createOperationJob(chapterId, versionId, 'update');
@@ -86,7 +91,7 @@ export async function POST(
       provider,
       model,
       references,
-      contextVersionIds,
+      effectiveContextVersionIds,
       researchDepth
     ).catch(err => {
       console.error('[CHAPTER-UPDATE-API] Background error:', err);
@@ -99,7 +104,7 @@ export async function POST(
       versionId,
       referencesCount: references.length,
       researchDepth,
-      contextChaptersCount: contextVersionIds.length
+      contextChaptersCount: effectiveContextVersionIds.length
     });
 
   } catch (error: any) {

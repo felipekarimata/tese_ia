@@ -24,6 +24,7 @@ export type TodosCurrentnessReviewOptions = {
   provider: AIProvider;
   model: string;
   apiKey: string;
+  bookContext?: string;
   onLog?: (message: string) => Promise<void> | void;
   onProgress?: (progress: TodosCurrentnessProgress) => Promise<void> | void;
 };
@@ -77,6 +78,7 @@ export async function runTodosCurrentnessReviewStep(
     model: options.model,
     apiKey: options.apiKey,
     depth: 'deep',
+    bookContext: options.bookContext,
     onLog: options.onLog,
     onProgress: async (current, total) => {
       await options.onProgress?.({

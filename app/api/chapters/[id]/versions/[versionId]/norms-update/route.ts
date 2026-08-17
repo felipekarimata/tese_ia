@@ -15,6 +15,7 @@ import type { AIProvider } from '@/lib/ai/types';
 import { reviewDocumentCurrentness, type ReviewScope } from '@/lib/currentness-review';
 import { extractCurrentnessDocument } from '@/lib/currentness-document';
 import type { ResearchDepth } from '@/lib/ai/research';
+import { resolveBookContextForChapter } from '@/lib/books/context';
 
 /**
  * POST /api/chapters/[chapterId]/versions/[versionId]/norms-update
@@ -120,7 +121,8 @@ export async function POST(
       provider,
       model,
       reviewScope,
-      researchDepth
+      researchDepth,
+      chapterId
     ).catch(err => {
       console.error('[NORMS] Chapter norms background error:', err);
     });
@@ -151,7 +153,8 @@ async function processNormsUpdate(
   provider: AIProvider,
   model: string,
   reviewScope: ReviewScope,
-  researchDepth: ResearchDepth
+  researchDepth: ResearchDepth,
+  chapterId: string
 ) {
   const apiKey = getProviderApiKey(provider);
 
@@ -173,6 +176,10 @@ async function processNormsUpdate(
       : await extractDocumentStructure(tempFilePath);
 
     if (reviewScope === 'currentness') {
+      const bookContext = await resolveBookContextForChapter(chapterId, {
+        query: 'Revisão de atualidade, vigência normativa, fatos e dados do capítulo',
+        maxChars: 16_000,
+      });
       const findings = await reviewDocumentCurrentness({
         paragraphs,
         sections: structure.sections,
@@ -180,6 +187,7 @@ async function processNormsUpdate(
         model,
         apiKey,
         depth: researchDepth,
+        bookContext: bookContext?.text,
         onLog: message => appendNormJobLog(jobId, message),
         onProgress: async (current, total) => {
           const percentage = 10 + Math.floor((current / Math.max(1, total)) * 85);

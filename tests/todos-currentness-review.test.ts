@@ -58,6 +58,7 @@ test('/todos usa revisão currentness profunda e aplica somente achados com text
   const progress: TodosCurrentnessProgress[] = [];
   let receivedDepth = '';
   let receivedProvider = '';
+  let receivedBookContext = '';
   let appliedIds: string[] = [];
   let copied = false;
 
@@ -77,6 +78,7 @@ test('/todos usa revisão currentness profunda e aplica somente achados com text
     reviewDocument: async (options) => {
       receivedDepth = options.depth || '';
       receivedProvider = options.provider;
+      receivedBookContext = options.bookContext || '';
       await options.onProgress?.(1, 2);
       await options.onProgress?.(2, 2);
       return [applicable, uncertain];
@@ -104,6 +106,7 @@ test('/todos usa revisão currentness profunda e aplica somente achados com text
     provider: 'openai',
     model: 'gpt-5.6-terra',
     apiKey: 'test-key',
+    bookContext: 'Capítulo anterior sobre transparência fiscal.',
     onProgress: (item) => {
       progress.push(item);
     },
@@ -111,6 +114,7 @@ test('/todos usa revisão currentness profunda e aplica somente achados com text
 
   assert.equal(receivedDepth, 'deep');
   assert.equal(receivedProvider, 'openai');
+  assert.equal(receivedBookContext, 'Capítulo anterior sobre transparência fiscal.');
   assert.deepEqual(appliedIds, ['finding-1']);
   assert.equal(copied, false);
   assert.equal(result.findings.length, 2);

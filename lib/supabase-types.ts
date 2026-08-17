@@ -64,6 +64,52 @@ export interface Database {
           updated_at?: string
         }
       }
+      books: {
+        Row: {
+          id: string
+          title: string
+          description: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          description?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          description?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      book_chapters: {
+        Row: {
+          book_id: string
+          chapter_id: string
+          chapter_order: number
+          added_at: string
+          updated_at: string
+        }
+        Insert: {
+          book_id: string
+          chapter_id: string
+          chapter_order: number
+          added_at?: string
+          updated_at?: string
+        }
+        Update: {
+          book_id?: string
+          chapter_id?: string
+          chapter_order?: number
+          added_at?: string
+          updated_at?: string
+        }
+      }
       translation_jobs: {
         Row: {
           id: string

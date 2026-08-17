@@ -19,7 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ArrowLeft, Send, FileText, PanelLeftClose, PanelLeftOpen, Sparkles,
   Loader2, Trash2, Languages, Wand2, Sliders, SearchCheck, ArrowLeftRight,
-  AlertCircle, Bot, User as UserIcon, Download, BookOpen,
+  AlertCircle, Bot, User as UserIcon, Download, BookOpen, Library,
   ChevronDown, Cpu, Ban, History, PlayCircle, ChevronUp, X, Terminal,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -106,6 +106,18 @@ type SiblingChapter = {
   title: string;
   chapterOrder: number;
   currentVersionId?: string;
+};
+
+type ChapterBookInfo = {
+  bookId: string;
+  bookTitle: string;
+  currentChapterOrder: number;
+  chapters: Array<{
+    chapterId: string;
+    chapterTitle: string;
+    chapterOrder: number;
+    currentVersionId: string;
+  }>;
 };
 
 type ChatMessage = {
@@ -247,6 +259,7 @@ export default function AgentModePage() {
   );
 
   const [siblings, setSiblings] = useState<SiblingChapter[]>([]);
+  const [bookInfo, setBookInfo] = useState<ChapterBookInfo | null>(null);
 
   const [diffOpen, setDiffOpen] = useState(false);
   const [diffLeft, setDiffLeft] = useState<ChapterVersion | null>(null);
@@ -329,6 +342,19 @@ export default function AgentModePage() {
     })();
     return () => { cancelled = true; };
   }, [chapter?.thesisId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(`/api/books/chapter/${chapterId}`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data.context as ChapterBookInfo | null;
+      })
+      .then((context) => { if (!cancelled) setBookInfo(context); })
+      .catch(() => { if (!cancelled) setBookInfo(null); });
+    return () => { cancelled = true; };
+  }, [chapterId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -771,14 +797,10 @@ export default function AgentModePage() {
           { useGrounding: true, versionId }
         ));
       case 5: {
-        const previousVersionIds = siblings
-          .filter((sibling) => sibling.chapterOrder < (chapter?.chapterOrder ?? 0))
-          .map((sibling) => sibling.currentVersionId)
-          .filter((id): id is string => Boolean(id));
         return Boolean(await runAdjustPipeline(
           '',
           '/finalizar',
-          { contextVersionIds: previousVersionIds, versionId }
+          { versionId }
         ));
       }
     }
@@ -1166,6 +1188,7 @@ export default function AgentModePage() {
           model: ai.model,
           documentTitle: chapter?.title,
           documentText: docText,
+          chapterId,
           versionId: selectedVersionId,
           history,
           userMessage: userText,
@@ -1494,13 +1517,7 @@ export default function AgentModePage() {
         }
 
         case '/finalizar': {
-          const previousVersionIds = siblings
-            .filter((sibling) => sibling.chapterOrder < (chapter?.chapterOrder ?? 0))
-            .map((sibling) => sibling.currentVersionId)
-            .filter((id): id is string => Boolean(id));
-          await runAdjustPipeline('', '/finalizar', {
-            contextVersionIds: previousVersionIds,
-          });
+          await runAdjustPipeline('', '/finalizar');
           return;
         }
 
@@ -1539,6 +1556,15 @@ export default function AgentModePage() {
     return allCommands.filter((c) => c.name.slice(1).startsWith(q));
   }, [input, allCommands]);
 
+  const navigationChapters: SiblingChapter[] = bookInfo?.chapters?.length
+    ? bookInfo.chapters.map((item) => ({
+        id: item.chapterId,
+        title: item.chapterTitle,
+        chapterOrder: item.chapterOrder,
+        currentVersionId: item.currentVersionId,
+      }))
+    : siblings;
+
   if (loadingChapter) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -1569,7 +1595,7 @@ export default function AgentModePage() {
             <Badge className="bg-red-500/15 text-red-400 border border-red-500/30 text-[10px] uppercase tracking-wider flex-shrink-0">Beta</Badge>
           </div>
 
-          {siblings.length > 1 && (
+          {navigationChapters.length > 1 && (
             <>
               <div className="h-5 w-px bg-white/10 flex-shrink-0" />
               <Select value={chapterId} onValueChange={(v) => router.push(`/chapters/${v}/agent`)}>
@@ -1578,19 +1604,38 @@ export default function AgentModePage() {
                   <SelectValue placeholder="Capítulo" />
                 </SelectTrigger>
                 <SelectContent>
-                  {siblings.map((c) => (
+                  {navigationChapters.map((c) => (
                     <SelectItem key={c.id} value={c.id}>Cap {c.chapterOrder}: {c.title}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </>
           )}
-          {siblings.length <= 1 && (
+          {navigationChapters.length <= 1 && (
             <>
               <div className="h-5 w-px bg-white/10 mx-1 flex-shrink-0" />
               <p className="text-sm text-gray-400 truncate">{chapter.title}</p>
             </>
           )}
+          <Link
+            href="/book"
+            className={`hidden min-w-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors xl:flex ${
+              bookInfo
+                ? 'border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-300 hover:bg-emerald-500/[0.14]'
+                : 'border-white/10 text-gray-500 hover:bg-white/5 hover:text-gray-300'
+            }`}
+            title={bookInfo
+              ? `${bookInfo.bookTitle}: ${Math.max(0, bookInfo.chapters.length - 1)} outro(s) capítulo(s) no contexto`
+              : 'Adicionar este capítulo a um livro'}
+          >
+            <Library className="h-3.5 w-3.5 shrink-0" />
+            <span className="max-w-[150px] truncate">{bookInfo?.bookTitle || 'Sem livro'}</span>
+            {bookInfo && (
+              <Badge className="h-4 bg-emerald-500/15 px-1 text-[10px] text-emerald-200">
+                {Math.max(0, bookInfo.chapters.length - 1)} contexto
+              </Badge>
+            )}
+          </Link>
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">

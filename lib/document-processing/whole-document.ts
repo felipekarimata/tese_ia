@@ -14,6 +14,7 @@ import type { SkillContext, SkillKey } from '@/lib/skills/types';
 import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
 import { resolveCommandPrompt } from '@/lib/book-workflow/prompts';
 import { assessPortugueseDocument } from '@/lib/translation/language-gate';
+import { formatBookContextForPrompt } from '@/lib/books/context';
 
 export type PromptParagraph = {
   index: number;
@@ -38,6 +39,8 @@ export type WholeDocumentOptions = {
   editorialProfile?: 'book-ptbr';
   /** Resolved at execution time so the pure prompt builder remains testable. */
   editorialInstructions?: string;
+  /** Read-only excerpts from the other chapters in the same book. */
+  relatedContext?: string;
 };
 
 export type WholeDocumentResult = {
@@ -94,6 +97,8 @@ export function buildWholeDocumentPrompt(
   options: Omit<WholeDocumentOptions, 'provider' | 'model' | 'task' | 'maxChars'>
 ): string {
   const context = options.skillContext ?? 'direct';
+  const bookContext = formatBookContextForPrompt(options.relatedContext || null);
+  const withBookContext = (prompt: string) => bookContext ? `${prompt}\n\n${bookContext}` : prompt;
 
   if (task === 'translate') {
     const lang = options.targetLanguage === 'en' ? 'inglês'
@@ -107,9 +112,9 @@ export function buildWholeDocumentPrompt(
       { language: lang, document: serialized },
       context
     );
-    return options.editorialProfile === 'book-ptbr'
+    return withBookContext(options.editorialProfile === 'book-ptbr'
       ? `${options.editorialInstructions || resolveCommandPrompt('translate')}\n\n${translationPrompt}`
-      : translationPrompt;
+      : translationPrompt);
   }
 
   if (task === 'adapt') {
@@ -124,7 +129,7 @@ export function buildWholeDocumentPrompt(
         : options.adaptStyle
           ? (`adapt:${options.adaptStyle}` as SkillKey)
           : 'adapt:simplified';
-    return resolveSkillPrompt(
+    return withBookContext(resolveSkillPrompt(
       skillKey,
       {
         style: styleLabel,
@@ -132,17 +137,17 @@ export function buildWholeDocumentPrompt(
         document: serialized,
       },
       context
-    );
+    ));
   }
 
-  return resolveSkillPrompt(
+  return withBookContext(resolveSkillPrompt(
     'adjust',
     {
       args: options.adjustInstructions || 'Melhore o documento',
       document: serialized,
     },
     context
-  );
+  ));
 }
 
 export function parseMarkedResponse(
@@ -308,7 +313,7 @@ export async function processWholeDocument(
           style: options.adaptStyle,
           audience: options.targetAudience,
           language: options.targetLanguage,
-        })
+        }) + (options.relatedContext ? `\n\n${formatBookContextForPrompt(options.relatedContext)}` : '')
       : buildWholeDocumentPrompt(options.task, serialized, promptOptions);
 
     let response = await callWholeDocumentAI(prompt, options.provider, options.model);

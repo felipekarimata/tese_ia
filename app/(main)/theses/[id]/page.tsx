@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ThesisTree } from '@/components/thesis/thesis-tree';
 import { UploadChapterDialog } from '@/components/thesis/upload-chapter-dialog';
-import { BookOpen, Upload, ArrowLeft, Trash2, FileText, FileStack } from 'lucide-react';
+import { BookOpen, Upload, ArrowLeft, Trash2, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 
 type Thesis = {
@@ -225,12 +225,6 @@ export default function ThesisPage() {
             <Trash2 className="h-4 w-4 mr-2" />
             {deleting ? 'Deletando...' : 'Deletar Tese'}
           </Button>
-          {chapters.length > 0 && (
-            <Button variant="secondary" onClick={() => router.push(`/theses/${thesisId}/book`)}>
-              <FileStack className="mr-2 h-4 w-4" />
-              Montar livro
-            </Button>
-          )}
           <Button onClick={() => setUploadDialogOpen(true)}>
             <Upload className="mr-2 h-4 w-4" />
             Adicionar Capítulo
