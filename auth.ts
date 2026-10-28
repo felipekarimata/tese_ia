@@ -60,6 +60,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   pages: {
     signIn: "/login",
+    error: "/error",
   },
   callbacks: {
     // ALLOWLIST: login Microsoft só é permitido para email já cadastrado e ativo.

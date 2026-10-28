@@ -9,6 +9,7 @@ export default auth((req) => {
   // Rotas públicas (não exigem autenticação)
   const publicRoutes = [
     "/login",
+    "/error",
     "/esqueci-senha",
     "/resetar-senha",
     "/api/auth",
