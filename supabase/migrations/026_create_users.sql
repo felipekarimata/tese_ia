@@ -62,5 +62,6 @@ CREATE POLICY "users_all_access_for_now" ON public.users
 INSERT INTO public.users (email, name, role, password_hash, auth_provider)
 VALUES
   ('admin@tese.com',          'Administrador',    'admin', NULL, 'credentials'),
-  ('marcelino@rmsa.com.br',   'Jorge Marcelino',  'admin', NULL, 'credentials')
+  ('marcelino@rmsa.com.br',   'Jorge Marcelino',  'admin', NULL, 'credentials'),
+  ('felipe@eyesbot.com.br',   'Felipe Karimata',  'admin', NULL, 'credentials')
 ON CONFLICT (lower(email)) DO NOTHING;
