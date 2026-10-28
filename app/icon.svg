@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Fundo circular na cor primaria do produto (primary = hsl 0 84% 60%) -->
+  <circle cx="50" cy="50" r="50" fill="hsl(0, 84%, 60%)" />
+  <!-- Letra "A" branca -->
+  <path
+    d="M30 76 L50 26 L70 76"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="9"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M39 58 L61 58"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="9"
+    stroke-linecap="round"
+  />
+</svg>

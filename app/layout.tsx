@@ -7,7 +7,7 @@ import { Providers } from "./providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "AutorIA MVP",
+  title: "AutorIA",
   description: "Chat sobre documentos com múltiplas IAs",
 };
 
