@@ -251,6 +251,7 @@ export default function ThesisPage() {
         <ThesisTree
           chapters={chapters}
           onDeleteChapter={handleDeleteChapter}
+          onRenamed={loadThesis}
         />
       )}
 
