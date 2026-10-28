@@ -56,6 +56,10 @@ export async function parseDocument(buffer: Buffer, fileName: string): Promise<P
     case '.docx':
       return parseDOCX(buffer);
     case '.txt':
+    case '.md':
+    case '.markdown':
+    case '.csv':
+      // Formatos de texto puro (UTF-8) — mesmo tratamento do .txt.
       return parseTXT(buffer);
     default:
       throw new Error(`Unsupported file type: ${ext}`);

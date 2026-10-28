@@ -89,7 +89,7 @@ export function UploadDialog({ open, onOpenChange, onUploadComplete, projectId }
         <DialogHeader>
           <DialogTitle>Upload de Documento</DialogTitle>
           <DialogDescription>
-            Envie um arquivo PDF, DOCX ou TXT para análise
+            Envie um arquivo PDF, DOCX, TXT, MD ou CSV para análise
           </DialogDescription>
         </DialogHeader>
 
@@ -99,7 +99,7 @@ export function UploadDialog({ open, onOpenChange, onUploadComplete, projectId }
             <Input
               id="file"
               type="file"
-              accept=".pdf,.docx,.txt"
+              accept=".pdf,.docx,.txt,.md,.markdown,.csv"
               onChange={handleFileChange}
               disabled={uploading}
             />

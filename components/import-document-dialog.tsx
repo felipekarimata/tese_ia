@@ -277,12 +277,12 @@ export function ImportDocumentDialog({ open, onOpenChange, onCreated }: ImportDo
                   <p className="text-sm font-medium text-gray-300">Arraste seu arquivo aqui</p>
                   <p className="text-xs text-gray-500 mt-1">ou clique para selecionar</p>
                   <span className="mt-3 text-xs text-gray-600 bg-white/5 px-3 py-1 rounded-full border border-white/10">
-                    PDF · DOCX · TXT
+                    PDF · DOCX · TXT · MD · CSV
                   </span>
                   <input
                     type="file"
                     className="hidden"
-                    accept=".pdf,.docx,.doc,.txt"
+                    accept=".pdf,.docx,.doc,.txt,.md,.markdown,.csv"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (f) handleFileSelect(f);
