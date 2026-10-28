@@ -2,7 +2,7 @@ import NextAuth from "next-auth"
 import Credentials from "next-auth/providers/credentials"
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id"
 import bcrypt from "bcryptjs"
-import { getUserByEmail, setLastLogin, setAuthProvider } from "@/lib/auth-db"
+import { getUserByEmail, createUser, setLastLogin, setAuthProvider } from "@/lib/auth-db"
 
 /**
  * Autenticação com usuários persistidos no Supabase (tabela `users`).
@@ -10,8 +10,10 @@ import { getUserByEmail, setLastLogin, setAuthProvider } from "@/lib/auth-db"
  * O antigo Map em memória e o admin hardcoded foram removidos.
  *
  * Login Microsoft (Entra ID): só é registrado se AUTH_MICROSOFT_ENTRA_ID_ID
- * estiver definido (feature flag natural). O acesso é por ALLOWLIST: só entra
- * quem já está pré-cadastrado e ativo na tabela `users`.
+ * estiver definido (feature flag natural). O app Azure é Single-Tenant, então
+ * só membros e convidados autorizados no tenant da RMSA chegam ao callback —
+ * por isso confiamos no tenant e criamos o usuário automaticamente no primeiro
+ * login (não há mais allowlist). Um usuário com is_active=false segue bloqueado.
  */
 const microsoftEnabled = Boolean(process.env.AUTH_MICROSOFT_ENTRA_ID_ID?.trim())
 
@@ -63,7 +65,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     error: "/error",
   },
   callbacks: {
-    // ALLOWLIST: login Microsoft só é permitido para email já cadastrado e ativo.
+    // Login Microsoft: confia no tenant Single-Tenant da RMSA. Cria o usuário
+    // automaticamente no primeiro acesso; respeita is_active para quem já existe.
     async signIn({ account, profile, user }) {
       if (account?.provider === "microsoft-entra-id") {
         const p = (profile ?? {}) as Record<string, unknown>;
@@ -77,14 +80,26 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (!email) return false;
 
         const dbUser = await getUserByEmail(email);
-        if (!dbUser) return false;            // não está na allowlist
-        if (!dbUser.is_active) return false;  // conta desativada
 
-        await setLastLogin(dbUser.id);
-        // Marca como 'microsoft' apenas se o usuário ainda não usa credenciais.
-        if (dbUser.auth_provider !== "credentials") {
-          await setAuthProvider(dbUser.id, "microsoft");
+        // Usuário já existe: respeita o flag is_active (admin pode ter desativado).
+        if (dbUser) {
+          if (!dbUser.is_active) return false;
+          await setLastLogin(dbUser.id);
+          // Marca como 'microsoft' apenas se ainda não usa credenciais.
+          if (dbUser.auth_provider !== "credentials") {
+            await setAuthProvider(dbUser.id, "microsoft");
+          }
+          return true;
         }
+
+        // Não existe: criação automática (role 'user', ativo). O nome vem do
+        // profile; se vazio, derivamos da parte local do email.
+        const name =
+          ((p.name as string | undefined) || (user?.name as string | undefined) || "").trim() ||
+          email.split("@")[0];
+        const created = await createUser({ email, name, role: "user" });
+        await setAuthProvider(created.id, "microsoft");
+        await setLastLogin(created.id);
         return true;
       }
       return true;
