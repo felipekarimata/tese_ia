@@ -7,10 +7,23 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ImportDocumentDialog } from '@/components/import-document-dialog';
-import { FileText, Sparkles, BookOpen, GraduationCap, Search, Upload, Folder, Trash2 } from 'lucide-react';
+import { FileText, Sparkles, BookOpen, GraduationCap, Search, Upload, Folder, Trash2, Pencil, Check, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+
+function formatDates(createdAt?: string, updatedAt?: string): string {
+  const parts: string[] = [];
+  try {
+    if (createdAt) parts.push(`Criado em ${format(new Date(createdAt), 'dd/MM/yyyy', { locale: ptBR })}`);
+  } catch {}
+  try {
+    if (updatedAt) parts.push(`Atualizado em ${format(new Date(updatedAt), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}`);
+  } catch {}
+  return parts.join(' · ');
+}
 
 type Project = {
   id: string;
@@ -236,8 +249,11 @@ export default function HomePage() {
                         title={thesis.title}
                         description={thesis.description}
                         badge={`${thesis.chapterCount} ${thesis.chapterCount === 1 ? 'capítulo' : 'capítulos'}`}
+                        createdAt={thesis.createdAt}
+                        updatedAt={thesis.updatedAt}
                         index={index}
                         onDeleted={loadAll}
+                        onRenamed={loadAll}
                       />
                     ))}
                   </div>
@@ -272,8 +288,11 @@ export default function HomePage() {
                         title={project.name}
                         description={project.description}
                         badge={`${project.documentCount} ${project.documentCount === 1 ? 'doc' : 'docs'}`}
+                        createdAt={project.createdAt}
+                        updatedAt={project.updatedAt}
                         index={index}
                         onDeleted={loadAll}
+                        onRenamed={loadAll}
                       />
                     ))}
                   </div>
@@ -308,8 +327,11 @@ function DocumentCard({
   title,
   description,
   badge,
+  createdAt,
+  updatedAt,
   index,
   onDeleted,
+  onRenamed,
 }: {
   id: string;
   type: 'thesis' | 'project';
@@ -318,15 +340,23 @@ function DocumentCard({
   title: string;
   description?: string;
   badge: string;
+  createdAt?: string;
+  updatedAt?: string;
   index: number;
   onDeleted?: () => void;
+  onRenamed?: () => void;
 }) {
   const [deleting, setDeleting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(title);
+  const [saving, setSaving] = useState(false);
+
+  const label = type === 'thesis' ? 'tese' : 'projeto';
+  const dates = formatDates(createdAt, updatedAt);
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const label = type === 'thesis' ? 'tese' : 'projeto';
     const confirmed = window.confirm(
       `Excluir permanentemente ${label === 'tese' ? 'a' : 'o'} ${label} "${title}"?\n\nTodos os dados serão removidos. Esta ação não pode ser desfeita.`
     );
@@ -348,49 +378,151 @@ function DocumentCard({
     }
   };
 
+  const startEdit = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setValue(title);
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setValue(title);
+  };
+
+  const saveEdit = async () => {
+    const next = value.trim();
+    if (!next) {
+      toast.error('O nome não pode ficar vazio.');
+      return;
+    }
+    if (next === title) {
+      setEditing(false);
+      return;
+    }
+    try {
+      setSaving(true);
+      const endpoint = type === 'thesis' ? `/api/theses/${id}` : `/api/projects/${id}`;
+      const payload = type === 'thesis' ? { title: next } : { name: next };
+      const res = await fetch(endpoint, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Falha ao renomear');
+      }
+      toast.success('Nome atualizado.');
+      setEditing(false);
+      onRenamed?.();
+    } catch (e: any) {
+      toast.error(e.message || 'Erro ao renomear');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div
       className="group relative"
       style={{ animation: `fadeInUp 0.4s ease-out ${index * 0.07}s both` }}
     >
-      <Link href={href} className="block">
-        <div className="relative h-full">
-          <div className="absolute -inset-0.5 bg-gradient-to-r from-red-600 to-red-800 rounded-2xl opacity-0 group-hover:opacity-15 blur transition-all duration-300" />
-          <Card className="relative h-full bg-gradient-to-br from-white/[0.07] to-white/[0.02] backdrop-blur-xl border-white/10 hover:border-red-500/30 transition-all duration-300 group-hover:shadow-xl group-hover:shadow-red-500/10 group-hover:-translate-y-0.5 cursor-pointer overflow-hidden">
-            <CardHeader className="relative pb-3">
-              <div className="flex items-start justify-between mb-3">
-                <div className="p-2.5 bg-gradient-to-br from-red-500/15 to-red-600/10 rounded-xl border border-red-500/20 group-hover:border-red-500/40 transition-colors">
-                  {icon}
-                </div>
-                <Badge variant="secondary" className="bg-white/10 text-gray-300 border-white/10 text-xs">
-                  <FileText className="h-3 w-3 mr-1" />
-                  {badge}
-                </Badge>
+      <div className="relative h-full">
+        <div className="absolute -inset-0.5 bg-gradient-to-r from-red-600 to-red-800 rounded-2xl opacity-0 group-hover:opacity-15 blur transition-all duration-300 pointer-events-none" />
+        <Card className="relative h-full bg-gradient-to-br from-white/[0.07] to-white/[0.02] backdrop-blur-xl border-white/10 hover:border-red-500/30 transition-all duration-300 group-hover:shadow-xl group-hover:shadow-red-500/10 group-hover:-translate-y-0.5 overflow-hidden">
+          {/* Camada de clique (navegação) — desabilitada durante edição */}
+          {!editing && (
+            <Link href={href} className="absolute inset-0 z-0" aria-label={title} />
+          )}
+          <CardHeader className="relative z-[1] pb-3 pointer-events-none">
+            <div className="flex items-start justify-between mb-3">
+              <div className="p-2.5 bg-gradient-to-br from-red-500/15 to-red-600/10 rounded-xl border border-red-500/20 group-hover:border-red-500/40 transition-colors">
+                {icon}
               </div>
-              <CardTitle className="line-clamp-1 text-base font-bold text-white group-hover:text-red-400 transition-colors">
+              <Badge variant="secondary" className="bg-white/10 text-gray-300 border-white/10 text-xs">
+                <FileText className="h-3 w-3 mr-1" />
+                {badge}
+              </Badge>
+            </div>
+
+            {editing ? (
+              <div className="flex items-center gap-1.5 pointer-events-auto">
+                <Input
+                  autoFocus
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); saveEdit(); }
+                    if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+                  }}
+                  disabled={saving}
+                  className="h-8 text-sm bg-white/10 border-white/20 text-white"
+                />
+                <button
+                  onClick={saveEdit}
+                  disabled={saving}
+                  title="Salvar (Enter)"
+                  className="p-1.5 rounded-md text-green-400 hover:bg-green-500/10 disabled:opacity-50"
+                >
+                  <Check className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={cancelEdit}
+                  disabled={saving}
+                  title="Cancelar (Esc)"
+                  className="p-1.5 rounded-md text-gray-400 hover:bg-white/10 disabled:opacity-50"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <CardTitle
+                onDoubleClick={startEdit}
+                className="line-clamp-1 text-base font-bold text-white group-hover:text-red-400 transition-colors"
+                title="Clique duas vezes para renomear"
+              >
                 {title}
               </CardTitle>
-              <CardDescription className="line-clamp-2 text-gray-400 text-sm leading-relaxed">
-                {description || 'Sem descrição'}
-              </CardDescription>
-            </CardHeader>
-            <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-red-500/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-          </Card>
-        </div>
-      </Link>
+            )}
 
-      {/* Trash icon — appears on hover, top-right corner */}
-      <button
-        onClick={handleDelete}
-        disabled={deleting}
-        className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md bg-black/50 backdrop-blur-sm border border-white/10 text-gray-500 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/10 disabled:opacity-50"
-        title={`Excluir ${type === 'thesis' ? 'tese' : 'projeto'}`}
-      >
-        {deleting
-          ? <span className="block h-3.5 w-3.5 border border-gray-500 border-t-transparent rounded-full animate-spin" />
-          : <Trash2 className="h-3.5 w-3.5" />
-        }
-      </button>
+            <CardDescription className="line-clamp-2 text-gray-400 text-sm leading-relaxed">
+              {description || 'Sem descrição'}
+            </CardDescription>
+
+            {dates && (
+              <p className="text-[11px] text-gray-500 mt-2 leading-snug">{dates}</p>
+            )}
+          </CardHeader>
+          <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-red-500/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+        </Card>
+      </div>
+
+      {/* Ações — sempre visíveis no mobile; aparecem no hover a partir de md */}
+      {!editing && (
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={startEdit}
+            title={`Renomear ${label}`}
+            aria-label={`Renomear ${label}`}
+            className="p-1.5 rounded-md bg-black/50 backdrop-blur-sm border border-white/10 text-gray-400 hover:text-white hover:border-white/30 hover:bg-white/10"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            title={`Excluir ${label}`}
+            aria-label={`Excluir ${label}`}
+            className="p-1.5 rounded-md bg-black/50 backdrop-blur-sm border border-white/10 text-gray-500 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/10 disabled:opacity-50"
+          >
+            {deleting
+              ? <span className="block h-3.5 w-3.5 border border-gray-500 border-t-transparent rounded-full animate-spin" />
+              : <Trash2 className="h-3.5 w-3.5" />
+            }
+          </button>
+        </div>
+      )}
     </div>
   );
 }

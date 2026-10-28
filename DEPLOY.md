@@ -62,6 +62,34 @@ Após deploy, acesse:
 - Após isso, ~$5-10/mês dependendo do uso
 - Estado em memória persiste enquanto app não reiniciar
 
+## Keep-alive do Supabase (evitar hibernação)
+
+Projetos Supabase no plano free hibernam após ~7 dias sem atividade. Para evitar
+isso, existe o endpoint:
+
+```
+GET /api/cron/keepalive
+```
+
+Ele faz uma leitura mínima no banco (equivalente a `SELECT 1`) e retorna
+`{ "status": "ok" }`.
+
+### Como configurar (Coolify ou similar)
+
+1. Crie um **Scheduled Task / Cron** no Coolify (ou use um serviço externo como
+   cron-job.org / UptimeRobot) chamando a URL pública:
+   ```
+   https://SEU-APP/api/cron/keepalive
+   ```
+2. Frequência sugerida: **a cada 24h** (basta manter atividade dentro da janela
+   de hibernação).
+3. (Opcional, recomendado) Defina a env `CRON_SECRET` e configure o agendador
+   para enviar o header `Authorization: Bearer <CRON_SECRET>` (ou `?secret=...`).
+   Sem `CRON_SECRET`, o endpoint é aberto (apenas uma leitura trivial).
+
+> O endpoint está liberado no middleware (`/api/cron` é público), então não exige
+> login.
+
 ## Alternativa: Deploy Manual via CLI
 
 ```bash

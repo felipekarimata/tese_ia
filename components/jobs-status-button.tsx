@@ -137,6 +137,7 @@ export function JobsStatusButton() {
             : 'text-gray-400 border-white/10 hover:text-white hover:bg-white/5'
         )}
         title="Operações em andamento"
+        aria-label="Operações em andamento"
       >
         {runningCount > 0 ? (
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -159,7 +160,7 @@ export function JobsStatusButton() {
               <Activity className="h-4 w-4 text-red-400" />
               <h3 className="text-sm font-semibold text-white">Operações de IA</h3>
             </div>
-            <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-white">
+            <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-white" aria-label="Fechar">
               <X className="h-4 w-4" />
             </button>
           </div>

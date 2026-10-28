@@ -20,9 +20,9 @@ export async function POST(request: NextRequest) {
 
     // Validate file type
     const ext = path.extname(file.name).toLowerCase();
-    if (!['.pdf', '.docx', '.txt'].includes(ext)) {
+    if (!['.pdf', '.docx', '.txt', '.md', '.markdown', '.csv'].includes(ext)) {
       return NextResponse.json(
-        { error: 'Unsupported file type. Only PDF, DOCX, and TXT are allowed.' },
+        { error: 'Tipo de arquivo não suportado. Aceitos: PDF, DOCX, TXT, MD e CSV.' },
         { status: 400 }
       );
     }

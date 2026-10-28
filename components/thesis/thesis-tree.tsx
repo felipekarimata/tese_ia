@@ -1,9 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, FileText, File, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, File, Trash2, Pencil, Check, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
@@ -30,10 +32,55 @@ type ThesisTreeProps = {
   chapters: Chapter[];
   onDeleteChapter?: (chapterId: string) => void;
   onChapterClick?: (chapterId: string) => void;
+  onRenamed?: () => void;
 };
 
-export function ThesisTree({ chapters, onDeleteChapter, onChapterClick }: ThesisTreeProps) {
+export function ThesisTree({ chapters, onDeleteChapter, onChapterClick, onRenamed }: ThesisTreeProps) {
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(new Set());
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [savingRename, setSavingRename] = useState(false);
+
+  const startRename = (chapterId: string, currentTitle: string) => {
+    setEditingId(chapterId);
+    setEditValue(currentTitle);
+  };
+
+  const cancelRename = () => {
+    setEditingId(null);
+    setEditValue('');
+  };
+
+  const saveRename = async (chapterId: string, currentTitle: string) => {
+    const next = editValue.trim();
+    if (!next) {
+      toast.error('O título não pode ficar vazio.');
+      return;
+    }
+    if (next === currentTitle) {
+      cancelRename();
+      return;
+    }
+    try {
+      setSavingRename(true);
+      const res = await fetch(`/api/chapters/${chapterId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: next }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Falha ao renomear capítulo');
+      }
+      toast.success('Capítulo renomeado.');
+      cancelRename();
+      onRenamed?.();
+    } catch (e: any) {
+      toast.error(e.message || 'Erro ao renomear');
+    } finally {
+      setSavingRename(false);
+    }
+  };
 
   const toggleChapter = (chapterId: string) => {
     const newExpanded = new Set(expandedChapters);
@@ -115,12 +162,48 @@ export function ThesisTree({ chapters, onDeleteChapter, onChapterClick }: Thesis
               {/* Chapter Info */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm">
+                  <span className="font-medium text-sm whitespace-nowrap">
                     Capítulo {chapter.chapterOrder}
                   </span>
-                  <span className="text-sm text-muted-foreground truncate">
-                    {chapter.title}
-                  </span>
+                  {editingId === chapter.id ? (
+                    <div className="flex items-center gap-1 flex-1">
+                      <Input
+                        autoFocus
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); saveRename(chapter.id, chapter.title); }
+                          if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+                        }}
+                        disabled={savingRename}
+                        className="h-7 text-sm"
+                      />
+                      <button
+                        onClick={() => saveRename(chapter.id, chapter.title)}
+                        disabled={savingRename}
+                        title="Salvar (Enter)"
+                        className="p-1 rounded text-green-600 hover:bg-green-500/10 disabled:opacity-50"
+                      >
+                        <Check className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={cancelRename}
+                        disabled={savingRename}
+                        title="Cancelar (Esc)"
+                        className="p-1 rounded text-muted-foreground hover:bg-muted disabled:opacity-50"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <span
+                      className="text-sm text-muted-foreground truncate cursor-text"
+                      onDoubleClick={() => startRename(chapter.id, chapter.title)}
+                      title="Clique duas vezes para renomear"
+                    >
+                      {chapter.title}
+                    </span>
+                  )}
                 </div>
                 {chapter.currentVersion && (
                   <div className="flex items-center gap-2 mt-1">
@@ -152,6 +235,21 @@ export function ThesisTree({ chapters, onDeleteChapter, onChapterClick }: Thesis
 
               {/* Actions */}
               <div className="flex gap-1">
+                {editingId !== chapter.id && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8"
+                    title="Renomear capítulo"
+                    aria-label="Renomear capítulo"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      startRename(chapter.id, chapter.title);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                )}
                 <Link href={`/chapters/${chapter.id}`}>
                   <Button size="sm" variant="ghost" className="h-8">
                     Abrir
@@ -162,6 +260,8 @@ export function ThesisTree({ chapters, onDeleteChapter, onChapterClick }: Thesis
                     size="sm"
                     variant="ghost"
                     className="h-8 text-destructive hover:text-destructive"
+                    title="Excluir capítulo"
+                    aria-label="Excluir capítulo"
                     onClick={(e) => {
                       e.stopPropagation();
                       onDeleteChapter(chapter.id);

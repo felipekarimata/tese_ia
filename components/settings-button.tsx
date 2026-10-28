@@ -17,6 +17,7 @@ export function SettingsButton() {
           : 'text-gray-400 border-white/10 hover:text-white hover:bg-white/5'
       }`}
       title="Configurações"
+      aria-label="Configurações"
     >
       <Settings className="h-4 w-4" />
       <span className="hidden sm:inline">Configurações</span>
