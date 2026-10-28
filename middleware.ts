@@ -4,18 +4,31 @@ import { NextResponse } from "next/server"
 export default auth((req) => {
   const { pathname } = req.nextUrl;
   const isLoggedIn = !!req.auth;
+  const role = (req.auth?.user as { role?: string } | undefined)?.role;
 
-  // Public routes that don't require authentication
-  const publicRoutes = ["/login", "/api/auth", "/api/health"];
+  // Rotas públicas (não exigem autenticação)
+  const publicRoutes = [
+    "/login",
+    "/esqueci-senha",
+    "/resetar-senha",
+    "/api/auth",
+    "/api/health",
+    "/api/cron",
+  ];
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
 
-  // Redirect to login if not authenticated and trying to access protected route
+  // Não autenticado em rota protegida → login
   if (!isLoggedIn && !isPublicRoute) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
-  // Redirect to home if already logged in and trying to access login
-  if (isLoggedIn && pathname === "/login") {
+  // Já logado tentando acessar telas de auth → home
+  if (isLoggedIn && (pathname === "/login" || pathname === "/esqueci-senha" || pathname === "/resetar-senha")) {
+    return NextResponse.redirect(new URL("/", req.url));
+  }
+
+  // Área admin: exige papel admin
+  if (pathname.startsWith("/admin") && role !== "admin") {
     return NextResponse.redirect(new URL("/", req.url));
   }
 
