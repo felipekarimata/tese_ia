@@ -10,10 +10,8 @@ import { toast } from "sonner";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
-    name: "",
     email: "",
     password: ""
   });
@@ -26,15 +24,13 @@ export default function LoginPage() {
       const result = await signIn("credentials", {
         email: formData.email,
         password: formData.password,
-        name: formData.name,
-        action: isSignUp ? "signup" : "login",
         redirect: false
       });
 
       if (result?.error) {
-        toast.error(result.error);
+        toast.error("Email ou senha inválidos.");
       } else {
-        toast.success(isSignUp ? "Conta criada com sucesso!" : "Login efetuado!");
+        toast.success("Login efetuado!");
         router.push("/");
         router.refresh();
       }
@@ -83,28 +79,12 @@ export default function LoginPage() {
               <span className="bg-gradient-to-r from-red-500 to-red-600 bg-clip-text text-transparent">IA</span>
             </h1>
             <p className="text-gray-400 text-sm">
-              {isSignUp ? "Criar nova conta" : "Bem-vindo de volta"}
+              Bem-vindo de volta
             </p>
           </div>
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
-            {isSignUp && (
-              <div className="space-y-2">
-                <Label htmlFor="name" className="text-gray-200 text-sm font-medium">
-                  Nome
-                </Label>
-                <Input
-                  id="name"
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-red-500/50 focus:ring-red-500/20 h-11 rounded-lg transition-all"
-                  placeholder="Seu nome completo"
-                  required={isSignUp}
-                />
-              </div>
-            )}
             <div className="space-y-2">
               <Label htmlFor="email" className="text-gray-200 text-sm font-medium">
                 Email
@@ -144,29 +124,10 @@ export default function LoginPage() {
                   Processando...
                 </div>
               ) : (
-                isSignUp ? "Criar Conta" : "Entrar"
+                "Entrar"
               )}
             </Button>
           </form>
-
-          {/* Toggle Sign Up / Sign In */}
-          <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={() => setIsSignUp(!isSignUp)}
-              className="text-sm text-gray-400 hover:text-red-500 transition-colors"
-            >
-              {isSignUp ? (
-                <>
-                  Já tem conta? <span className="text-red-500 font-medium">Entrar</span>
-                </>
-              ) : (
-                <>
-                  Não tem conta? <span className="text-red-500 font-medium">Criar</span>
-                </>
-              )}
-            </button>
-          </div>
         </div>
 
         {/* Footer */}

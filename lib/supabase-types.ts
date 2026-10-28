@@ -169,6 +169,70 @@ export interface Database {
           completed_at?: string | null
         }
       }
+      users: {
+        Row: {
+          id: string
+          email: string
+          name: string | null
+          password_hash: string | null
+          role: 'admin' | 'user'
+          is_active: boolean
+          auth_provider: 'credentials' | 'microsoft'
+          created_at: string
+          updated_at: string
+          last_login_at: string | null
+        }
+        Insert: {
+          id?: string
+          email: string
+          name?: string | null
+          password_hash?: string | null
+          role?: 'admin' | 'user'
+          is_active?: boolean
+          auth_provider?: 'credentials' | 'microsoft'
+          created_at?: string
+          updated_at?: string
+          last_login_at?: string | null
+        }
+        Update: {
+          id?: string
+          email?: string
+          name?: string | null
+          password_hash?: string | null
+          role?: 'admin' | 'user'
+          is_active?: boolean
+          auth_provider?: 'credentials' | 'microsoft'
+          created_at?: string
+          updated_at?: string
+          last_login_at?: string | null
+        }
+      }
+      password_reset_tokens: {
+        Row: {
+          id: string
+          user_id: string
+          token_hash: string
+          expires_at: string
+          used_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          token_hash: string
+          expires_at: string
+          used_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          token_hash?: string
+          expires_at?: string
+          used_at?: string | null
+          created_at?: string
+        }
+      }
       settings: {
         Row: {
           id: string

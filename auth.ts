@@ -1,83 +1,68 @@
 import NextAuth from "next-auth"
 import Credentials from "next-auth/providers/credentials"
+import bcrypt from "bcryptjs"
+import { getUserByEmail, setLastLogin } from "@/lib/auth-db"
 
-// In-memory user storage (for MVP - replace with database later)
-const users = new Map<string, { id: string; name: string; email: string; password: string }>();
-
-// Pre-create admin user
-users.set("admin@tese.com", {
-  id: "admin-001",
-  name: "Administrador",
-  email: "admin@tese.com",
-  password: "Alterar@01"
-});
-
+/**
+ * Autenticação com usuários persistidos no Supabase (tabela `users`).
+ * Sessão via JWT (sem adapter de banco — compatível com Credentials).
+ * O antigo Map em memória e o admin hardcoded foram removidos.
+ */
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     Credentials({
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Senha", type: "password" },
-        name: { label: "Nome", type: "text" },
-        action: { label: "Ação", type: "text" }
       },
       async authorize(credentials) {
-        const action = credentials.action as string;
-        const email = credentials.email as string;
-        const password = credentials.password as string;
-        const name = credentials.name as string;
+        const email = (credentials?.email as string | undefined)?.trim();
+        const password = credentials?.password as string | undefined;
+        if (!email || !password) return null;
 
-        if (action === "signup") {
-          // Check if user already exists
-          if (users.has(email)) {
-            throw new Error("Email já cadastrado");
-          }
+        const user = await getUserByEmail(email);
+        if (!user) return null;
+        if (!user.is_active) return null;
+        // Usuário ainda não definiu senha (criado via admin / Microsoft):
+        // precisa usar "esqueci minha senha" para ativar o acesso por senha.
+        if (!user.password_hash) return null;
 
-          // Create new user
-          const newUser = {
-            id: Math.random().toString(36).substring(7),
-            name: name || email.split("@")[0],
-            email,
-            password // In production, hash this!
-          };
-          users.set(email, newUser);
+        const valid = await bcrypt.compare(password, user.password_hash);
+        if (!valid) return null;
 
-          return {
-            id: newUser.id,
-            name: newUser.name,
-            email: newUser.email
-          };
-        }
-
-        // Login
-        const user = users.get(email);
-        if (!user || user.password !== password) {
-          throw new Error("Email ou senha inválidos");
-        }
+        await setLastLogin(user.id);
 
         return {
           id: user.id,
-          name: user.name,
-          email: user.email
+          name: user.name ?? undefined,
+          email: user.email,
+          role: user.role,
         };
-      }
-    })
+      },
+    }),
   ],
   pages: {
-    signIn: "/login"
+    signIn: "/login",
   },
   callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.sub = user.id;
+        // `role` vem do authorize (Credentials) ou é resolvido no signIn (OAuth)
+        if ((user as { role?: string }).role) {
+          token.role = (user as { role?: string }).role;
+        }
+      }
+      return token;
+    },
     async session({ session, token }) {
       if (token.sub) {
         session.user.id = token.sub;
       }
+      if (token.role) {
+        session.user.role = token.role as string;
+      }
       return session;
     },
-    async jwt({ token, user }) {
-      if (user) {
-        token.sub = user.id;
-      }
-      return token;
-    }
-  }
+  },
 })
