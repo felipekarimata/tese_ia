@@ -20,6 +20,7 @@ export function UserMenu() {
         <Link
           href="/admin"
           title="Gerenciar usuários"
+          aria-label="Gerenciar usuários"
           className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition-colors"
         >
           <Users className="h-4 w-4" />

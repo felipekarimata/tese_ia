@@ -504,6 +504,7 @@ function DocumentCard({
           <button
             onClick={startEdit}
             title={`Renomear ${label}`}
+            aria-label={`Renomear ${label}`}
             className="p-1.5 rounded-md bg-black/50 backdrop-blur-sm border border-white/10 text-gray-400 hover:text-white hover:border-white/30 hover:bg-white/10"
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -512,6 +513,7 @@ function DocumentCard({
             onClick={handleDelete}
             disabled={deleting}
             title={`Excluir ${label}`}
+            aria-label={`Excluir ${label}`}
             className="p-1.5 rounded-md bg-black/50 backdrop-blur-sm border border-white/10 text-gray-500 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/10 disabled:opacity-50"
           >
             {deleting

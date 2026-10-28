@@ -241,6 +241,7 @@ export function ThesisTree({ chapters, onDeleteChapter, onChapterClick, onRename
                     variant="ghost"
                     className="h-8"
                     title="Renomear capítulo"
+                    aria-label="Renomear capítulo"
                     onClick={(e) => {
                       e.stopPropagation();
                       startRename(chapter.id, chapter.title);
@@ -259,6 +260,8 @@ export function ThesisTree({ chapters, onDeleteChapter, onChapterClick, onRename
                     size="sm"
                     variant="ghost"
                     className="h-8 text-destructive hover:text-destructive"
+                    title="Excluir capítulo"
+                    aria-label="Excluir capítulo"
                     onClick={(e) => {
                       e.stopPropagation();
                       onDeleteChapter(chapter.id);

@@ -215,6 +215,7 @@ export default function AdminPage() {
                           disabled={busy}
                           onClick={() => resetPassword(u.id, u.email)}
                           title="Enviar reset de senha"
+                          aria-label={`Enviar reset de senha para ${u.email}`}
                           className="text-gray-400 hover:text-red-400"
                         >
                           <KeyRound className="h-4 w-4" />
@@ -225,6 +226,7 @@ export default function AdminPage() {
                           disabled={busy || isSelf}
                           onClick={() => patch(u.id, "toggle-role")}
                           title={u.role === "admin" ? "Rebaixar para usuário" : "Promover a admin"}
+                          aria-label={u.role === "admin" ? `Rebaixar ${u.email} para usuário` : `Promover ${u.email} a admin`}
                           className="text-gray-400 hover:text-amber-400"
                         >
                           {u.role === "admin" ? (
@@ -239,6 +241,7 @@ export default function AdminPage() {
                           disabled={busy || (isSelf && u.is_active)}
                           onClick={() => patch(u.id, "toggle-active")}
                           title={u.is_active ? "Desativar" : "Ativar"}
+                          aria-label={u.is_active ? `Desativar ${u.email}` : `Ativar ${u.email}`}
                           className="text-gray-400 hover:text-red-400"
                         >
                           {u.is_active ? (
