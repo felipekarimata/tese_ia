@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { signIn } from "next-auth/react";
+import { signIn, getProviders } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,10 +12,38 @@ import { toast } from "sonner";
 export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [microsoftEnabled, setMicrosoftEnabled] = useState(false);
+  const [msLoading, setMsLoading] = useState(false);
   const [formData, setFormData] = useState({
     email: "",
     password: ""
   });
+
+  // Mostra o botão Microsoft apenas se o provider estiver registrado (env setada).
+  useEffect(() => {
+    getProviders()
+      .then((p) => setMicrosoftEnabled(Boolean(p && p["microsoft-entra-id"])))
+      .catch(() => setMicrosoftEnabled(false));
+  }, []);
+
+  // Erro de acesso negado (allowlist Microsoft) vem via ?error= na URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get("error");
+    if (err === "AccessDenied") {
+      toast.error("Seu email não tem acesso ao sistema. Fale com o administrador.");
+    }
+  }, []);
+
+  const handleMicrosoft = async () => {
+    setMsLoading(true);
+    try {
+      await signIn("microsoft-entra-id", { callbackUrl: "/" });
+    } catch {
+      setMsLoading(false);
+      toast.error("Não foi possível iniciar o login com a Microsoft.");
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,6 +157,40 @@ export default function LoginPage() {
               )}
             </Button>
           </form>
+
+          {microsoftEnabled && (
+            <>
+              <div className="flex items-center gap-3 my-6">
+                <div className="h-px flex-1 bg-white/10" />
+                <span className="text-xs text-gray-500">ou</span>
+                <div className="h-px flex-1 bg-white/10" />
+              </div>
+              <Button
+                type="button"
+                onClick={handleMicrosoft}
+                disabled={msLoading}
+                variant="outline"
+                className="w-full h-11 border-white/15 bg-white/5 text-white hover:bg-white/10 rounded-lg transition-all"
+              >
+                {msLoading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    Redirecionando...
+                  </div>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <svg width="18" height="18" viewBox="0 0 23 23" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <rect x="1" y="1" width="10" height="10" fill="#F25022" />
+                      <rect x="12" y="1" width="10" height="10" fill="#7FBA00" />
+                      <rect x="1" y="12" width="10" height="10" fill="#00A4EF" />
+                      <rect x="12" y="12" width="10" height="10" fill="#FFB900" />
+                    </svg>
+                    Entrar com Microsoft
+                  </span>
+                )}
+              </Button>
+            </>
+          )}
 
           <div className="mt-6 text-center">
             <Link
