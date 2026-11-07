@@ -3,6 +3,7 @@ import { ChatRequest, AIResponse } from './types';
 import { buildSystemPrompt, buildUserPrompt, extractCitations } from './prompts';
 import { state } from '../state';
 import { isGemini429, parseGeminiRetryDelayMs, sleep } from './gemini-retry';
+import { geminiRateLimiter } from './rate-limiter';
 
 export async function executeGemini(
   request: ChatRequest,
@@ -22,6 +23,8 @@ export async function executeGemini(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      // Rate limit global: evita 429 na origem antes de cada chamada.
+      await geminiRateLimiter.acquire();
       const result = await model.generateContent({
         contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
         generationConfig: {
