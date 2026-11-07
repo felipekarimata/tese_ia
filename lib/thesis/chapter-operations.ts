@@ -26,6 +26,7 @@ import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
 import { sanitizeEditorialText } from '@/lib/book-workflow/output';
 import { assessPortugueseDocument } from '@/lib/translation/language-gate';
 import { state } from '@/lib/state';
+import { recordUsage } from '@/lib/ai/job-budget';
 import {
   buildBudgetedBookContext,
   formatBookContextForPrompt,
@@ -1375,6 +1376,19 @@ Respond with ONLY a JSON object in this format:
         });
         responseText = result.response.text();
         lastErr = undefined;
+
+        // Contabiliza no budget do capítulo (aborta se passar do teto).
+        {
+          const tokensIn = Math.round(prompt.length / 4);
+          const tokensOut = Math.round(responseText.length / 4);
+          const pricing = state.settings.pricesUSD[model] ?? { in: 0, out: 0 };
+          await recordUsage({
+            model,
+            tokensIn,
+            tokensOut,
+            costUsd: (tokensIn / 1000) * pricing.in + (tokensOut / 1000) * pricing.out,
+          });
+        }
         break;
       } catch (err: any) {
         lastErr = err;
