@@ -26,6 +26,7 @@ import { getEffectiveCommandPrompt } from '@/lib/book-workflow/prompt-settings';
 import { sanitizeEditorialText } from '@/lib/book-workflow/output';
 import { assessPortugueseDocument } from '@/lib/translation/language-gate';
 import { state } from '@/lib/state';
+import { recordUsage } from '@/lib/ai/job-budget';
 import {
   buildBudgetedBookContext,
   formatBookContextForPrompt,
@@ -73,6 +74,11 @@ export interface OperationJobStatus {
   newVersionId?: string;
   createdAt: string;
   completedAt?: string;
+  aiCallsCount?: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  costUsd?: number;
+  model?: string;
 }
 
 /**
@@ -117,6 +123,11 @@ export async function updateOperationJob(
   if (updates.errorMessage !== undefined) dbUpdates.error_message = updates.errorMessage;
   if (updates.newVersionId !== undefined) dbUpdates.new_version_id = updates.newVersionId;
   if (updates.completedAt !== undefined) dbUpdates.completed_at = updates.completedAt;
+  if (updates.aiCallsCount !== undefined) dbUpdates.ai_calls_count = updates.aiCallsCount;
+  if (updates.tokensIn !== undefined) dbUpdates.tokens_in = updates.tokensIn;
+  if (updates.tokensOut !== undefined) dbUpdates.tokens_out = updates.tokensOut;
+  if (updates.costUsd !== undefined) dbUpdates.cost_usd = updates.costUsd;
+  if (updates.model !== undefined) dbUpdates.model = updates.model;
 
   const { error } = await supabase
     .from('chapter_operation_jobs')
@@ -152,7 +163,12 @@ export async function getOperationJob(jobId: string): Promise<OperationJobStatus
     errorMessage: data.error_message,
     newVersionId: data.new_version_id,
     createdAt: data.created_at,
-    completedAt: data.completed_at
+    completedAt: data.completed_at,
+    aiCallsCount: data.ai_calls_count ?? undefined,
+    tokensIn: data.tokens_in ?? undefined,
+    tokensOut: data.tokens_out ?? undefined,
+    costUsd: data.cost_usd != null ? Number(data.cost_usd) : undefined,
+    model: data.model ?? undefined
   };
 }
 
@@ -1360,6 +1376,19 @@ Respond with ONLY a JSON object in this format:
         });
         responseText = result.response.text();
         lastErr = undefined;
+
+        // Contabiliza no budget do capítulo (aborta se passar do teto).
+        {
+          const tokensIn = Math.round(prompt.length / 4);
+          const tokensOut = Math.round(responseText.length / 4);
+          const pricing = state.settings.pricesUSD[model] ?? { in: 0, out: 0 };
+          await recordUsage({
+            model,
+            tokensIn,
+            tokensOut,
+            costUsd: (tokensIn / 1000) * pricing.in + (tokensOut / 1000) * pricing.out,
+          });
+        }
         break;
       } catch (err: any) {
         lastErr = err;

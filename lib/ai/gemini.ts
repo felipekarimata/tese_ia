@@ -2,7 +2,9 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ChatRequest, AIResponse } from './types';
 import { buildSystemPrompt, buildUserPrompt, extractCitations } from './prompts';
 import { state } from '../state';
-import { isGemini429, parseGeminiRetryDelayMs, sleep } from './gemini-retry';
+import { isGemini429, parseGeminiRetryDelayMs, sleep, backoffDelayMs, MAX_RETRY_ATTEMPTS } from './gemini-retry';
+import { geminiRateLimiter } from './rate-limiter';
+import { recordUsage } from './job-budget';
 
 export async function executeGemini(
   request: ChatRequest,
@@ -18,10 +20,12 @@ export async function executeGemini(
 
   const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
-  const maxAttempts = 4;
+  const maxAttempts = MAX_RETRY_ATTEMPTS;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      // Rate limit global: evita 429 na origem antes de cada chamada.
+      await geminiRateLimiter.acquire();
       const result = await model.generateContent({
         contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
         generationConfig: {
@@ -43,6 +47,9 @@ export async function executeGemini(
 
       const citations = extractCitations(text);
 
+      // Contabiliza no budget do capítulo (aborta se passar do teto).
+      await recordUsage({ model: request.model, tokensIn, tokensOut, costUsd: costEstimatedUsd });
+
       return {
         provider: 'gemini',
         model: request.model,
@@ -57,13 +64,10 @@ export async function executeGemini(
       if (attempt >= maxAttempts) {
         throw new Error(`Gemini error: ${error.message}`);
       }
-      if (isGemini429(error)) {
-        const delayMs = parseGeminiRetryDelayMs(error);
-        console.warn(`[GEMINI] 429 quota/rate limit (tentativa ${attempt}/${maxAttempts}), aguardando ${(delayMs / 1000).toFixed(1)}s...`);
-        await sleep(delayMs);
-      } else {
-        await sleep(1000);
-      }
+      const hintMs = isGemini429(error) ? parseGeminiRetryDelayMs(error) : undefined;
+      const delayMs = backoffDelayMs(attempt, hintMs);
+      console.warn(`[GEMINI] ${hintMs ? '429 quota/rate limit' : 'erro transitório'} (tentativa ${attempt}/${maxAttempts}), aguardando ${(delayMs / 1000).toFixed(1)}s...`);
+      await sleep(delayMs);
     }
   }
 

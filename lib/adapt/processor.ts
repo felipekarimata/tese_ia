@@ -6,6 +6,8 @@
 import { AdaptationSuggestion } from './types';
 import { extractDocumentStructure } from '@/lib/improvement/document-analyzer';
 import { isGemini429, parseGeminiRetryDelayMs } from '@/lib/ai/gemini-retry';
+import { recordUsage } from '@/lib/ai/job-budget';
+import { state } from '@/lib/state';
 import { isOpenAIGpt5Family, openaiCompletionTokenLimit } from '@/lib/ai/openai-compat';
 import { isQuotaExhausted } from '@/lib/ai-error-message';
 import { resolveSkillPrompt } from '@/lib/skills/resolver';
@@ -228,6 +230,17 @@ async function analyzeBatch(
         responseText = result.response.text();
         const apiDuration = ((Date.now() - apiStartTime) / 1000).toFixed(1);
         console.log(`[ADAPT]     → AI API responded in ${apiDuration}s`);
+
+        // Contabiliza no budget do capítulo (aborta se passar do teto).
+        const tokensIn = Math.round(prompt.length / 4);
+        const tokensOut = Math.round(responseText.length / 4);
+        const pricing = state.settings.pricesUSD[model] ?? { in: 0, out: 0 };
+        await recordUsage({
+          model,
+          tokensIn,
+          tokensOut,
+          costUsd: (tokensIn / 1000) * pricing.in + (tokensOut / 1000) * pricing.out,
+        });
       }
 
       // Parse response

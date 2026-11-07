@@ -37,3 +37,22 @@ export function parseGeminiRetryDelayMs(error: unknown): number {
 export async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/** Teto único de tentativas para qualquer provider (1 original + 2 retries). */
+export const MAX_RETRY_ATTEMPTS = 3;
+
+const BASE_DELAY_MS = 2_000;
+const MAX_DELAY_MS = 60_000; // teto por espera, evita dormir minutos por chamada
+
+/**
+ * Backoff exponencial com jitter e teto.
+ * @param attempt  Número do retry prestes a acontecer (1 = primeiro retry).
+ * @param retryHintMs  Hint do servidor (ex.: 429 "retry in Xs"), se houver.
+ */
+export function backoffDelayMs(attempt: number, retryHintMs?: number): number {
+  const exp = BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1);
+  const base = retryHintMs && retryHintMs > 0 ? Math.max(retryHintMs, exp) : exp;
+  const capped = Math.min(base, MAX_DELAY_MS);
+  const jitter = Math.random() * 0.3 * capped; // até +30% para dessincronizar retries
+  return Math.ceil(capped + jitter);
+}

@@ -3,7 +3,8 @@ import OpenAI from 'openai';
 import { isOpenAIGpt5Family, openaiCompletionTokenLimit } from '@/lib/ai/openai-compat';
 import { AIProvider } from '../ai/types';
 import { state } from '../state';
-import { isGemini429, parseGeminiRetryDelayMs } from '../ai/gemini-retry';
+import { isGemini429, parseGeminiRetryDelayMs, backoffDelayMs, MAX_RETRY_ATTEMPTS } from '../ai/gemini-retry';
+import { recordUsage } from '../ai/job-budget';
 import { protectElements, restoreElements, validatePlaceholders } from './validation-enhancer';
 import { protectGlossaryTerms, restoreGlossaryTerms, DEFAULT_GLOSSARY, type GlossaryEntry } from './glossary';
 import { sanitizeEditorialText } from '@/lib/book-workflow/output';
@@ -166,15 +167,16 @@ async function translateWithGemini(prompt: string, model: string, maxTokens: num
   const genAI = new GoogleGenerativeAI(apiKey);
   const geminiModel = genAI.getGenerativeModel({ model });
 
-  const maxRetries = 4; // More attempts for timeout/rate limit before failing
+  const maxRetries = MAX_RETRY_ATTEMPTS;
   let lastError: any;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       if (attempt > 0) {
-        const delayMs = lastError && isGemini429(lastError)
+        const hintMs = lastError && isGemini429(lastError)
           ? parseGeminiRetryDelayMs(lastError)
-          : 5000;
+          : undefined;
+        const delayMs = backoffDelayMs(attempt, hintMs);
         console.log(`[GEMINI] ⏳ Retry ${attempt}/${maxRetries} after ${(delayMs / 1000).toFixed(1)}s...`);
         await sleep(delayMs);
       }
@@ -199,6 +201,17 @@ async function translateWithGemini(prompt: string, model: string, maxTokens: num
         // Resposta vazia não faz retry - cai direto pro fallback
         throw new Error('Gemini returned empty response (no retry)');
       }
+
+      // Contabiliza no budget do capítulo (aborta se passar do teto).
+      const tokensIn = Math.round(prompt.length / 4);
+      const tokensOut = Math.round(text.length / 4);
+      const pricing = state.settings.pricesUSD[model] ?? { in: 0, out: 0 };
+      await recordUsage({
+        model,
+        tokensIn,
+        tokensOut,
+        costUsd: (tokensIn / 1000) * pricing.in + (tokensOut / 1000) * pricing.out,
+      });
 
       // Sucesso! Delay reduzido (0.8s suficiente)
       await sleep(800);
@@ -240,7 +253,7 @@ async function translateWithOpenAI(prompt: string, model: string, maxTokens: num
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
   const openai = new OpenAI({ apiKey });
-  const maxRetries = 10;
+  const maxRetries = MAX_RETRY_ATTEMPTS;
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -276,9 +289,9 @@ async function translateWithOpenAI(prompt: string, model: string, maxTokens: num
       const isTimeout = (error as any)?.name === 'AbortError' || isTimeoutOrRateLimit(error);
 
       if ((is429 || isTimeout) && attempt < maxRetries - 1) {
-        const waitMs = is429 ? 50000 : 15000; // 50s for rate limit, 15s for timeout
+        const waitMs = backoffDelayMs(attempt + 1);
         console.warn(
-          `[OPENAI] ⚠ ${is429 ? 'Rate limit' : 'Timeout'} (attempt ${attempt + 1}/${maxRetries}), waiting ${waitMs / 1000}s...`
+          `[OPENAI] ⚠ ${is429 ? 'Rate limit' : 'Timeout'} (attempt ${attempt + 1}/${maxRetries}), waiting ${(waitMs / 1000).toFixed(1)}s...`
         );
         await sleep(waitMs);
         continue;
@@ -299,7 +312,7 @@ async function translateWithAnthropic(prompt: string, model: string, maxTokens: 
   if (!apiKey) throw new Error('Anthropic API key not configured');
 
   const { anthropicChat } = await import('../ai/anthropic');
-  const maxRetries = 6;
+  const maxRetries = MAX_RETRY_ATTEMPTS;
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -317,7 +330,7 @@ async function translateWithAnthropic(prompt: string, model: string, maxTokens: 
     } catch (error: unknown) {
       lastError = error;
       if (isTimeoutOrRateLimit(error) && attempt < maxRetries - 1) {
-        await sleep(15000);
+        await sleep(backoffDelayMs(attempt + 1));
         continue;
       }
       throw error;
