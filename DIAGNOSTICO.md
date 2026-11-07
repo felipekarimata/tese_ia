@@ -244,3 +244,66 @@ Base: tema é **100% dark forçado** (`<html className="dark">` em [app/layout.t
 - [ ] Endurecer **RLS** do Supabase agora ou deixar para depois?
 - [ ] UX: implementar **light mode de verdade** ou **remover as classes `dark:` mortas**?
 - [ ] Confirmar credenciais **SMTP do Brevo** para o Next.js (separadas do painel Supabase).
+
+---
+
+# Diagnóstico — Leak de custo Gemini (outubro/2026)
+
+Registro do incidente de custo de IA (fatura ~R$ 44 mil) e das correções.
+
+## Perfil do leak
+
+O custo explodiu pela **combinação** de três fatores no caminho Gemini — nenhum isolado seria suficiente:
+
+1. **Retry empilhado sem circuit-breaker.** Até 4 camadas de retry independentes
+   (`maxRetries` de 10, 6 e 4) com delays fixos de 30–50s. Cada tentativa é uma
+   chamada cobrada; em rate-limit sustentado, o custo por operação multiplicava por 4–10×.
+2. **Fan-out por batch × Multi-3.** Cada capítulo processa `seções × batches`
+   (ex.: adapt com `BATCH_SIZE=15`), multiplicado por ~4 no modo multi-provider
+   (3 candidatos + judge). Sem teto de custo por capítulo.
+3. **Pro em processamento em massa.** O modelo é definido em runtime; rodar Gemini
+   **Pro** (vs Flash) em massa custa ~16× mais. Não havia trava de modelo para
+   operações em lote.
+
+Agravante: **ausência de rate limiter próprio** (o fan-out estourava o rate-limit e
+disparava o retry) e **ausência de persistência de custo** (gasto não auditável —
+não era possível cruzar "custo por tese × teses no período" com a fatura).
+
+## Autoria dos commits de risco
+
+Os commits que introduziram o workflow de livro/fan-out e o contexto persistente
+são de **Andre (andresloureiross@gmail.com)**:
+
+- `265cf51` (31/jul/2026) — "add guided thesis-to-book workflow": fan-out por batch.
+- `c85735f` (17/ago/2026) — "add persistent book context workflow": contexto
+  cross-chapter por operação (input inflado por chamada, embora capado em ~24K chars).
+
+> Observação: o retry do Gemini (`maxAttempts`) nasceu antes, em `b27afe3` (22/jul).
+> Não há commits entre 15–25/out (há um gap de ~2 meses, 18/ago → 27/out), então o
+> leak **não** veio de um commit dessa janela específica — é arquitetural.
+
+## Correções aplicadas (branch `fix/leak-gemini`, PR #4)
+
+1. **Rate limiter global (token-bucket)** — `lib/ai/rate-limiter.ts`, env `GEMINI_RPM`.
+2. **Retry unificado** — backoff exponencial + jitter + teto de 3 tentativas
+   (`backoffDelayMs`, `MAX_RETRY_ATTEMPTS`); removidos os `maxRetries=10/6/4` e waits fixos.
+3. **Budget por capítulo** — migração `028` (colunas de uso em `chapter_operation_jobs`)
+   + `lib/ai/job-budget.ts` (`AsyncLocalStorage` + abort via `JobBudgetExceededError`,
+   teto default US$ 1, env `JOB_COST_CAP_USD`).
+
+## Lição aprendida
+
+- **Toda chamada a provider externo de IA deve, desde o início, passar por
+  (a) rate limiter global e (b) budget por job com abort automático.**
+- Retry sempre com backoff exponencial + jitter + teto baixo; nunca camadas
+  empilhadas de retry com delay fixo.
+- Persistir custo/tokens por job desde o dia 1 — sem isso, um incidente de custo
+  não é auditável.
+- Travar modelo caro (Pro) em operações em massa salvo escolha explícita.
+
+## Follow-ups pendentes
+
+- [ ] Aplicar a migração `028` no Supabase.
+- [ ] Envolver o fluxo **multi-3 direto** em `runWithChapterBudget` (hoje só `/todos`).
+- [ ] Alerta de threshold de custo por job/capítulo.
+- [ ] Unificar a fonte de chave de IA (env `process.env` vs `state.settings`).
