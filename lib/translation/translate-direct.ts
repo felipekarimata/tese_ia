@@ -4,6 +4,7 @@ import { isOpenAIGpt5Family, openaiCompletionTokenLimit } from '@/lib/ai/openai-
 import { AIProvider } from '../ai/types';
 import { state } from '../state';
 import { isGemini429, parseGeminiRetryDelayMs, backoffDelayMs, MAX_RETRY_ATTEMPTS } from '../ai/gemini-retry';
+import { recordUsage } from '../ai/job-budget';
 import { protectElements, restoreElements, validatePlaceholders } from './validation-enhancer';
 import { protectGlossaryTerms, restoreGlossaryTerms, DEFAULT_GLOSSARY, type GlossaryEntry } from './glossary';
 import { sanitizeEditorialText } from '@/lib/book-workflow/output';
@@ -200,6 +201,17 @@ async function translateWithGemini(prompt: string, model: string, maxTokens: num
         // Resposta vazia não faz retry - cai direto pro fallback
         throw new Error('Gemini returned empty response (no retry)');
       }
+
+      // Contabiliza no budget do capítulo (aborta se passar do teto).
+      const tokensIn = Math.round(prompt.length / 4);
+      const tokensOut = Math.round(text.length / 4);
+      const pricing = state.settings.pricesUSD[model] ?? { in: 0, out: 0 };
+      await recordUsage({
+        model,
+        tokensIn,
+        tokensOut,
+        costUsd: (tokensIn / 1000) * pricing.in + (tokensOut / 1000) * pricing.out,
+      });
 
       // Sucesso! Delay reduzido (0.8s suficiente)
       await sleep(800);

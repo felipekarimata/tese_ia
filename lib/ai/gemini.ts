@@ -4,6 +4,7 @@ import { buildSystemPrompt, buildUserPrompt, extractCitations } from './prompts'
 import { state } from '../state';
 import { isGemini429, parseGeminiRetryDelayMs, sleep, backoffDelayMs, MAX_RETRY_ATTEMPTS } from './gemini-retry';
 import { geminiRateLimiter } from './rate-limiter';
+import { recordUsage } from './job-budget';
 
 export async function executeGemini(
   request: ChatRequest,
@@ -45,6 +46,9 @@ export async function executeGemini(
       const costEstimatedUsd = (tokensIn / 1000) * pricing.in + (tokensOut / 1000) * pricing.out;
 
       const citations = extractCitations(text);
+
+      // Contabiliza no budget do capítulo (aborta se passar do teto).
+      await recordUsage({ model: request.model, tokensIn, tokensOut, costUsd: costEstimatedUsd });
 
       return {
         provider: 'gemini',

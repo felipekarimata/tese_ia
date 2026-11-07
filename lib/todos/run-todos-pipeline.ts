@@ -8,6 +8,7 @@ import { translateDocx, applySuggestionsToDocx, type ApplyDocxSuggestion } from 
 import { SupportedLanguage } from '@/lib/translation/types';
 import { AIProvider } from '@/lib/ai/types';
 import { createOperationJob, updateOperationJob } from '@/lib/thesis/chapter-operations';
+import { runWithChapterBudget, setCurrentBudgetJob } from '@/lib/ai/job-budget';
 import { analyzeDocumentForAdaptation } from '@/lib/adapt/processor';
 import { extractDocumentStructure } from '@/lib/improvement/document-analyzer';
 import { detectNormsInDocument } from '@/lib/norms-update/norm-detector';
@@ -48,6 +49,7 @@ export async function runTodosPipeline(
   const baseMeta = config.multi3Meta || {};
 
   try {
+    return await runWithChapterBudget(chapterId, async () => {
     let latest = await getLatestChapterVersion(chapterId);
 
     const translated = await runTranslateStep(chapterId, latest.id, latest.file_path, config);
@@ -118,6 +120,7 @@ export async function runTodosPipeline(
     }
 
     return { versionIds, finalVersionId: adaptedVersionId };
+    });
   } finally {
     await Promise.all(tempPaths.map((p) => fs.unlink(p).catch(() => {})));
   }
@@ -130,6 +133,7 @@ async function runTranslateStep(
   config: TodosPipelineConfig
 ): Promise<{ outputPath: string; jobId: string; processingMode: string }> {
   const jobId = await createOperationJob(chapterId, versionId, 'translate');
+  setCurrentBudgetJob(jobId);
   const inputPath = await downloadChapterVersionFile(versionId, filePath, 'todos_translate_input');
   const outputPath = path.join(os.tmpdir(), `${jobId}_${versionId}_todos_translated.docx`);
 
@@ -197,6 +201,7 @@ async function runAdaptStep(
   config: TodosPipelineConfig
 ): Promise<{ outputPath: string; jobId: string; processingMode: string }> {
   const jobId = await createOperationJob(chapterId, versionId, 'adapt');
+  setCurrentBudgetJob(jobId);
   const inputPath = await downloadChapterVersionFile(versionId, filePath, 'todos_adapt_input');
   const outputPath = path.join(os.tmpdir(), `${jobId}_${versionId}_todos_adapted.docx`);
 
@@ -278,6 +283,7 @@ async function runNormsStep(
   config: { provider: AIProvider; model: string }
 ): Promise<{ outputPath: string | null; jobId: string }> {
   const operationJobId = await createOperationJob(chapterId, versionId, 'update');
+  setCurrentBudgetJob(operationJobId);
   const inputPath = await downloadChapterVersionFile(versionId, filePath, 'todos_norms_input');
   const outputPath = path.join(os.tmpdir(), `${versionId}_todos_norms_${randomUUID()}.docx`);
   const jobId = randomUUID();

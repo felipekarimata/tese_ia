@@ -73,6 +73,11 @@ export interface OperationJobStatus {
   newVersionId?: string;
   createdAt: string;
   completedAt?: string;
+  aiCallsCount?: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  costUsd?: number;
+  model?: string;
 }
 
 /**
@@ -117,6 +122,11 @@ export async function updateOperationJob(
   if (updates.errorMessage !== undefined) dbUpdates.error_message = updates.errorMessage;
   if (updates.newVersionId !== undefined) dbUpdates.new_version_id = updates.newVersionId;
   if (updates.completedAt !== undefined) dbUpdates.completed_at = updates.completedAt;
+  if (updates.aiCallsCount !== undefined) dbUpdates.ai_calls_count = updates.aiCallsCount;
+  if (updates.tokensIn !== undefined) dbUpdates.tokens_in = updates.tokensIn;
+  if (updates.tokensOut !== undefined) dbUpdates.tokens_out = updates.tokensOut;
+  if (updates.costUsd !== undefined) dbUpdates.cost_usd = updates.costUsd;
+  if (updates.model !== undefined) dbUpdates.model = updates.model;
 
   const { error } = await supabase
     .from('chapter_operation_jobs')
@@ -152,7 +162,12 @@ export async function getOperationJob(jobId: string): Promise<OperationJobStatus
     errorMessage: data.error_message,
     newVersionId: data.new_version_id,
     createdAt: data.created_at,
-    completedAt: data.completed_at
+    completedAt: data.completed_at,
+    aiCallsCount: data.ai_calls_count ?? undefined,
+    tokensIn: data.tokens_in ?? undefined,
+    tokensOut: data.tokens_out ?? undefined,
+    costUsd: data.cost_usd != null ? Number(data.cost_usd) : undefined,
+    model: data.model ?? undefined
   };
 }
 
