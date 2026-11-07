@@ -28,8 +28,8 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/", req.url));
   }
 
-  // Área admin: exige papel admin
-  if (pathname.startsWith("/admin") && role !== "admin") {
+  // Áreas restritas a admin: /admin e /settings (gestão de chaves de IA)
+  if ((pathname.startsWith("/admin") || pathname.startsWith("/settings")) && role !== "admin") {
     return NextResponse.redirect(new URL("/", req.url));
   }
 

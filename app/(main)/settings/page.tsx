@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,9 +48,20 @@ const KEY_PROVIDERS = [
 ];
 
 export default function SettingsPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [testing, setTesting] = useState<Record<string, boolean>>({});
   const [testResults, setTestResults] = useState<Record<string, 'success' | 'error' | null>>({});
+
+  const isAdmin = session?.user?.role === 'admin';
+
+  // Proteção no cliente (o middleware também protege no servidor).
+  useEffect(() => {
+    if (status === 'authenticated' && session?.user?.role !== 'admin') {
+      router.replace('/');
+    }
+  }, [status, session, router]);
 
   const {
     settings,
@@ -109,11 +122,22 @@ export default function SettingsPage() {
     }
   };
 
-  if (!mounted || loading) {
+  if (!mounted || loading || status === 'loading') {
     return (
       <div className="text-center py-12">
         <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
         <p className="text-muted-foreground mt-4">Carregando configurações...</p>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="text-center py-12">
+        <AlertCircle className="h-8 w-8 mx-auto text-muted-foreground" />
+        <p className="text-muted-foreground mt-4">
+          Sem permissão. Apenas administradores podem acessar as configurações.
+        </p>
       </div>
     );
   }

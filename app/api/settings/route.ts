@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { state, toPublicSettings } from '@/lib/state';
 import type { SkillsSettings } from '@/lib/skills/types';
 import { DEFAULT_SKILLS_SETTINGS } from '@/lib/skills/types';
@@ -21,6 +22,10 @@ function mergeSkills(incoming?: SkillsSettings): void {
 
 export async function GET() {
   try {
+    const session = await auth();
+    if (!session?.user || session.user.role !== 'admin') {
+      return NextResponse.json({ error: 'Não autorizado' }, { status: 403 });
+    }
     state.settings.commandPrompts = await loadCommandPromptOverrides({
       force: true,
       tolerateMissingMigration: true,
@@ -40,6 +45,10 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await auth();
+    if (!session?.user || session.user.role !== 'admin') {
+      return NextResponse.json({ error: 'Não autorizado' }, { status: 403 });
+    }
     const body = await request.json();
     const {
       openaiKey,
