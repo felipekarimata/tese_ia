@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { state } from '@/lib/state';
 import { executeAI } from '@/lib/ai/executor';
 
@@ -7,6 +8,10 @@ export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await auth();
+    if (!session?.user || session.user.role !== 'admin') {
+      return NextResponse.json({ error: 'Não autorizado' }, { status: 403 });
+    }
     const { provider } = await request.json() as { provider: 'openai' | 'gemini' | 'grok' | 'anthropic' };
 
     if (!provider) {
